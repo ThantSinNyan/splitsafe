@@ -4,6 +4,8 @@ SplitSafe is an AI-powered onchain group budgeting and payment assistant for fri
 
 Traditional split apps track who owes money. SplitSafe helps a group create a budget, add members, record expenses, calculate equal splits, settle unpaid balances on Base Sepolia, and ask an assistant to explain group spending in plain language.
 
+Live demo: [https://splitsafe.vercel.app](https://splitsafe.vercel.app)
+
 ## Problem
 
 Group spending is messy. People track expenses in chats, spreadsheets, and notes, then settle later with little context. Existing tools usually stop at "who owes who" and do not connect the budget, wallet settlement, and spending explanation.
@@ -118,14 +120,34 @@ Demo currency is displayed as USDC for budgeting, but this MVP does not move rea
 
 ## Deploy to Vercel
 
-1. Push the repo to GitHub.
-2. Import the project in Vercel.
-3. Add the same environment variables in Vercel Project Settings.
-4. Deploy.
+The GitHub repository is connected to Vercel. Pushes to `main` automatically trigger a production deployment.
+
+1. Push changes to GitHub.
+2. Vercel builds the Next.js app automatically.
+3. Production is served at [https://splitsafe.vercel.app](https://splitsafe.vercel.app).
+
+Required Vercel environment variables:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+GEMINI_API_KEY=
+```
+
+Optional Vercel environment variables:
+
+```bash
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
+NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=
+```
 
 The app uses standard Next.js routes and is Vercel-ready without custom server configuration.
 
 Do not add `.env.local`, wallet private keys, seed phrases, Supabase service role keys, or Gemini keys to GitHub. Wallet addresses stored by the app are public identifiers only.
+
+## Optional Render Deployment
+
+`render.yaml` is included as an optional Render blueprint. Add the same environment variables in Render's dashboard before deploying. Vercel remains the primary production host for this project.
 
 ## Hackathon Demo Flow
 
