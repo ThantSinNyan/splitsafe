@@ -1,5 +1,9 @@
 # SplitSafe
 
+<p align="center">
+  <img src="./public/splitsafe-logo-full.png" alt="SplitSafe logo" width="360" />
+</p>
+
 SplitSafe is an AI-powered onchain group budgeting and payment assistant for friends, students, families, and small teams.
 
 Live demo: [https://splitsafe.vercel.app](https://splitsafe.vercel.app)
@@ -41,6 +45,12 @@ SplitSafe gives each group a private workspace:
 - wagmi + viem + RainbowKit
 - Base Sepolia testnet
 - Vercel production deploy
+
+## Brand Assets
+
+- Full wordmark logo: `public/splitsafe-logo-full.png`
+- Icon-only logo: `public/splitsafe-logo.png`
+- Favicon/app icons use the icon-only mark.
 
 ## Setup
 

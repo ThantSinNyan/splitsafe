@@ -5,34 +5,34 @@ export type LogoSize = "sm" | "md" | "lg";
 
 const logoSizes = {
   sm: {
-    icon: "size-8 rounded-xl",
-    imageSize: 32,
-    title: "text-sm",
-    subtitle: "text-[11px]",
-    gap: "gap-2.5",
+    iconClassName: "size-8",
+    fullClassName: "h-8 w-[122px]",
+    iconImageSize: 32,
+    fullImageWidth: 320,
+    fullImageHeight: 84,
   },
   md: {
-    icon: "size-12 rounded-2xl",
-    imageSize: 48,
-    title: "text-base",
-    subtitle: "text-xs",
-    gap: "gap-3",
+    iconClassName: "size-12",
+    fullClassName: "h-12 w-[183px]",
+    iconImageSize: 48,
+    fullImageWidth: 480,
+    fullImageHeight: 126,
   },
   lg: {
-    icon: "size-20 rounded-[28px]",
-    imageSize: 80,
-    title: "text-2xl",
-    subtitle: "text-sm",
-    gap: "gap-4",
+    iconClassName: "size-12 sm:size-20",
+    fullClassName: "h-12 w-[183px] sm:h-20 sm:w-[305px]",
+    iconImageSize: 80,
+    fullImageWidth: 800,
+    fullImageHeight: 210,
   },
 } satisfies Record<
   LogoSize,
   {
-    icon: string;
-    imageSize: number;
-    title: string;
-    subtitle: string;
-    gap: string;
+    iconClassName: string;
+    fullClassName: string;
+    iconImageSize: number;
+    fullImageWidth: number;
+    fullImageHeight: number;
   }
 >;
 
@@ -47,43 +47,37 @@ export function Logo({
 }) {
   const config = logoSizes[size];
 
-  return (
-    <div className={cn("flex min-w-0 items-center", config.gap, className)}>
-      <div
-        className={cn(
-          "relative flex shrink-0 items-center justify-center overflow-hidden bg-white shadow-[0_18px_45px_rgba(15,23,42,0.14)] ring-1 ring-slate-200/70",
-          config.icon,
-        )}
-      >
+  if (compact) {
+    return (
+      <div className={cn("relative shrink-0", config.iconClassName, className)}>
         <Image
           src="/splitsafe-logo.png"
-          width={config.imageSize}
-          height={config.imageSize}
+          width={config.iconImageSize}
+          height={config.iconImageSize}
           alt="SplitSafe logo"
           className="h-full w-full object-contain"
           priority={size === "lg"}
         />
       </div>
-      {!compact ? (
-        <div className="min-w-0">
-          <p
-            className={cn(
-              "truncate font-semibold tracking-tight text-slate-950",
-              config.title,
-            )}
-          >
-            SplitSafe
-          </p>
-          <p
-            className={cn(
-              "truncate font-medium text-slate-500",
-              config.subtitle,
-            )}
-          >
-            Onchain group finance
-          </p>
-        </div>
-      ) : null}
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "relative min-w-0 shrink-0",
+        config.fullClassName,
+        className,
+      )}
+    >
+      <Image
+        src="/splitsafe-logo-full.png"
+        width={config.fullImageWidth}
+        height={config.fullImageHeight}
+        alt="SplitSafe logo"
+        className="h-full w-full object-contain"
+        priority={size === "lg"}
+      />
     </div>
   );
 }
