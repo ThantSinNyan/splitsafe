@@ -176,8 +176,18 @@ function normalizeAiMessage(value: unknown): AiMessage {
   };
 }
 
-function throwIfError(error: { message?: string } | null) {
+function throwIfError(error: { code?: string; message?: string } | null) {
   if (error) {
+    if (
+      error.code === "PGRST205" ||
+      error.message?.toLowerCase().includes("schema cache") ||
+      error.message?.toLowerCase().includes("could not find the table")
+    ) {
+      throw new Error(
+        "SplitSafe Supabase tables are missing. Run supabase/schema.sql in the Supabase SQL editor, then refresh the app.",
+      );
+    }
+
     throw new Error(error.message ?? "SplitSafe data request failed");
   }
 }
