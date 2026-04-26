@@ -7,17 +7,17 @@ import { cn } from "@/lib/utils";
 
 export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex min-w-0 items-center gap-3">
       <div className="relative flex size-10 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-[0_18px_45px_rgba(15,23,42,0.18)]">
         <div className="absolute inset-0 rounded-2xl bg-[linear-gradient(135deg,rgba(45,212,191,0.38),transparent_55%)]" />
         <ShieldCheck className="relative size-5" aria-hidden="true" />
       </div>
       {!compact ? (
-        <div>
-          <p className="text-base font-semibold tracking-tight text-slate-950">
+        <div className="min-w-0">
+          <p className="truncate text-base font-semibold tracking-tight text-slate-950">
             SplitSafe
           </p>
-          <p className="text-xs font-medium text-slate-500">
+          <p className="truncate text-xs font-medium text-slate-500">
             Onchain group finance
           </p>
         </div>

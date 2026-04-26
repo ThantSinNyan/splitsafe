@@ -12,9 +12,5 @@ services:
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
         sync: false
-      - key: NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
-        sync: false
-      - key: NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL
-        sync: false
       - key: GEMINI_API_KEY
         sync: false

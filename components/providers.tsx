@@ -6,6 +6,7 @@ import { RainbowKitProvider, lightTheme } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { WagmiProvider } from "wagmi";
+import { AuthProvider } from "@/components/auth-provider";
 import { baseSepolia, wagmiConfig } from "@/lib/wagmi";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -23,7 +24,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             fontStack: "system",
           })}
         >
-          {children}
+          <AuthProvider>{children}</AuthProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

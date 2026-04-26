@@ -9,7 +9,10 @@ import {
   Wifi,
 } from "lucide-react";
 import { useAccount, useChainId } from "wagmi";
+import { useEffect } from "react";
+import { useAuth } from "@/components/auth-provider";
 import { Badge } from "@/components/ui-kit";
+import { getSupabaseClient } from "@/lib/supabase";
 import { baseSepolia } from "@/lib/wagmi";
 import { cn, shortAddress } from "@/lib/utils";
 
@@ -90,7 +93,21 @@ export function WalletPanel({
 }) {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const { profile, refreshProfile, user } = useAuth();
   const onBaseSepolia = chainId === baseSepolia.id;
+
+  useEffect(() => {
+    if (!user || !address || profile?.wallet_address === address) return;
+
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    void supabase
+      .from("profiles")
+      .update({ wallet_address: address })
+      .eq("id", user.id)
+      .then(() => refreshProfile());
+  }, [address, profile?.wallet_address, refreshProfile, user]);
 
   return (
     <div

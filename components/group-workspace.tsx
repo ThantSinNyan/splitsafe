@@ -1,17 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { waitForTransactionReceipt } from "@wagmi/core";
 import {
   ArrowLeft,
   Bot,
   CheckCircle2,
   CircleDollarSign,
+  Copy,
   Database,
   ExternalLink,
   Landmark,
   Loader2,
+  MailPlus,
   Plus,
   ReceiptText,
   Send,
@@ -28,6 +31,7 @@ import {
   useSendTransaction,
   useSwitchChain,
 } from "wagmi";
+import { useAuth } from "@/components/auth-provider";
 import { AppShell } from "@/components/app-shell";
 import {
   AvatarToken,
@@ -44,10 +48,10 @@ import {
 } from "@/components/ui-kit";
 import { WalletPanel } from "@/components/wallet-panel";
 import {
+  acceptInvite,
   addExpense,
-  addMember,
-  getGroupWorkspace,
-  getStorageMode,
+  createInvite,
+  getWorkspace,
   recordSettlement,
   saveAiMessage,
 } from "@/lib/storage";
@@ -57,19 +61,19 @@ import {
   formatMoney,
   makeId,
   memberName,
+  profileLabel,
   shortAddress,
 } from "@/lib/utils";
 import type {
   AiMessage,
   CreateExpenseInput,
-  CreateMemberInput,
+  CreateInviteInput,
+  Expense,
   ExpenseSplit,
-  GroupMember,
-  GroupWorkspaceData,
-  MemberRole,
+  WorkspaceData,
+  WorkspaceMember,
 } from "@/types/splitsafe";
 
-const memberRoles: MemberRole[] = ["member", "owner"];
 const expenseCategories = [
   "food",
   "travel",
@@ -92,9 +96,8 @@ const suggestedPrompts = [
 
 type AiStatus = "idle" | "gemini" | "fallback" | "unavailable";
 
-const initialMemberForm: CreateMemberInput = {
-  name: "",
-  wallet_address: "",
+const initialInviteForm: CreateInviteInput = {
+  invited_email: "",
   role: "member",
 };
 
@@ -102,8 +105,8 @@ const initialExpenseForm: CreateExpenseInput = {
   title: "",
   amount: 30,
   category: "food",
-  paid_by_member_id: "",
-  split_member_ids: [],
+  paid_by: "",
+  split_user_ids: [],
   notes: "",
 };
 
@@ -119,91 +122,91 @@ function mockHash() {
   return `0x${body}`;
 }
 
-function memberById(members: GroupMember[]) {
-  return new Map(members.map((member) => [member.id, member]));
+function userName(userId: string, members: WorkspaceMember[]) {
+  return memberName(userId, members);
+}
+
+function activeMembers(members: WorkspaceMember[]) {
+  return members.filter((member) => member.status === "active");
 }
 
 export function GroupWorkspace({ groupId }: { groupId: string }) {
+  const router = useRouter();
+  const { loading: authLoading, user } = useAuth();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChainAsync } = useSwitchChain();
   const { sendTransactionAsync } = useSendTransaction();
 
-  const [workspace, setWorkspace] = useState<GroupWorkspaceData | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [memberForm, setMemberForm] =
-    useState<CreateMemberInput>(initialMemberForm);
+  const [inviteForm, setInviteForm] =
+    useState<CreateInviteInput>(initialInviteForm);
   const [expenseForm, setExpenseForm] =
     useState<CreateExpenseInput>(initialExpenseForm);
-  const [memberSaving, setMemberSaving] = useState(false);
+  const [inviteSaving, setInviteSaving] = useState(false);
   const [expenseSaving, setExpenseSaving] = useState(false);
   const [settlingId, setSettlingId] = useState<string | null>(null);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [aiQuestion, setAiQuestion] = useState("Who still needs to pay?");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiStatus>("idle");
-  const storageMode = getStorageMode();
 
-  async function refreshWorkspace() {
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace(`/login?next=/workspaces/${groupId}`);
+    }
+  }, [authLoading, groupId, router, user]);
+
+  const refreshWorkspace = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
     setError(null);
 
     try {
-      const nextWorkspace = await getGroupWorkspace(groupId);
+      const nextWorkspace = await getWorkspace(groupId);
       setWorkspace(nextWorkspace);
-      if (nextWorkspace?.members.length) {
-        setExpenseForm((current) =>
-          current.paid_by_member_id
-            ? current
-            : {
-                ...current,
-                paid_by_member_id: nextWorkspace.members[0].id,
-                split_member_ids: nextWorkspace.members.map((member) => member.id),
-              },
-        );
+
+      const nextMembers = activeMembers(nextWorkspace?.members ?? []);
+      if (nextMembers.length) {
+        setExpenseForm((current) => ({
+          ...current,
+          paid_by: current.paid_by || user.id,
+          split_user_ids:
+            current.split_user_ids.length > 0
+              ? current.split_user_ids
+              : nextMembers.map((member) => member.user_id),
+        }));
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load group");
+      setError(
+        caught instanceof Error ? caught.message : "Could not load workspace",
+      );
     } finally {
       setLoading(false);
     }
-  }
+  }, [groupId, user]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!user) return;
 
-    queueMicrotask(async () => {
-      setLoading(true);
-      setError(null);
+    queueMicrotask(() => void refreshWorkspace());
+  }, [refreshWorkspace, user]);
 
-      try {
-        const nextWorkspace = await getGroupWorkspace(groupId);
-        if (cancelled) return;
-        setWorkspace(nextWorkspace);
-        if (nextWorkspace?.members.length) {
-          setExpenseForm((current) =>
-            current.paid_by_member_id
-              ? current
-              : {
-                  ...current,
-                  paid_by_member_id: nextWorkspace.members[0].id,
-                  split_member_ids: nextWorkspace.members.map((member) => member.id),
-                },
-          );
-        }
-      } catch (caught) {
-        if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : "Could not load group");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    });
+  const members = useMemo(
+    () => activeMembers(workspace?.members ?? []),
+    [workspace?.members],
+  );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [groupId]);
+  const expensesById = useMemo(
+    () => new Map((workspace?.expenses ?? []).map((expense) => [expense.id, expense])),
+    [workspace?.expenses],
+  );
+
+  const canManage =
+    workspace?.currentMember?.role === "owner" ||
+    workspace?.currentMember?.role === "admin";
 
   const metrics = useMemo(() => {
     if (!workspace) {
@@ -221,7 +224,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       (sum, expense) => sum + expense.amount,
       0,
     );
-    const remaining = workspace.group.budget_amount - totalSpent;
+    const remaining = workspace.workspace.total_budget - totalSpent;
     const categoryTotals = workspace.expenses.reduce<Record<string, number>>(
       (totals, expense) => {
         totals[expense.category] = (totals[expense.category] ?? 0) + expense.amount;
@@ -234,14 +237,14 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     );
     const pendingAmount = workspace.splits
       .filter((split) => split.status === "unpaid")
-      .reduce((sum, split) => sum + split.amount, 0);
+      .reduce((sum, split) => sum + split.amount_owed, 0);
 
     return {
       totalSpent,
       remaining,
       spentPercent:
-        workspace.group.budget_amount > 0
-          ? Math.min((totalSpent / workspace.group.budget_amount) * 100, 100)
+        workspace.workspace.total_budget > 0
+          ? Math.min((totalSpent / workspace.workspace.total_budget) * 100, 100)
           : 0,
       topCategory: sortedCategories[0]?.[0] ?? "none",
       pendingAmount,
@@ -249,34 +252,27 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     };
   }, [workspace]);
 
-  const membersById = useMemo(
-    () => memberById(workspace?.members ?? []),
-    [workspace?.members],
-  );
-
-  const unpaidSplits = useMemo(
-    () => workspace?.splits.filter((split) => split.status === "unpaid") ?? [],
-    [workspace?.splits],
-  );
-
-  async function handleAddMember(event: React.FormEvent<HTMLFormElement>) {
+  async function handleInvite(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMemberSaving(true);
+    setInviteSaving(true);
     setError(null);
+    setInviteLink(null);
 
     try {
-      if (!memberForm.name.trim()) throw new Error("Member name is required");
-      if (!memberForm.wallet_address.trim()) {
-        throw new Error("Wallet address is required for settlement");
+      if (!inviteForm.invited_email.trim()) {
+        throw new Error("Invite email is required");
       }
 
-      await addMember(groupId, memberForm);
-      setMemberForm(initialMemberForm);
+      const invite = await createInvite(groupId, inviteForm);
+      const link = `${window.location.origin}/invite/${invite.invite_token}`;
+      setInviteLink(link);
+      await navigator.clipboard?.writeText(link);
+      setInviteForm(initialInviteForm);
       await refreshWorkspace();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not add member");
+      setError(caught instanceof Error ? caught.message : "Could not create invite");
     } finally {
-      setMemberSaving(false);
+      setInviteSaving(false);
     }
   }
 
@@ -290,18 +286,17 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       if (!Number.isFinite(expenseForm.amount) || expenseForm.amount <= 0) {
         throw new Error("Expense amount must be greater than zero");
       }
-      if (!expenseForm.paid_by_member_id) throw new Error("Choose who paid");
-      if (expenseForm.split_member_ids.length === 0) {
+      if (!expenseForm.paid_by) throw new Error("Choose who paid");
+      if (expenseForm.split_user_ids.length === 0) {
         throw new Error("Choose at least one member to split with");
       }
 
       await addExpense(groupId, expenseForm);
-      setExpenseForm((current) => ({
+      setExpenseForm({
         ...initialExpenseForm,
-        paid_by_member_id:
-          workspace?.members[0]?.id ?? current.paid_by_member_id,
-        split_member_ids: workspace?.members.map((member) => member.id) ?? [],
-      }));
+        paid_by: user?.id ?? "",
+        split_user_ids: members.map((member) => member.user_id),
+      });
       await refreshWorkspace();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not add expense");
@@ -310,15 +305,15 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     }
   }
 
-  function toggleSplitMember(memberId: string) {
+  function toggleSplitUser(userId: string) {
     setExpenseForm((current) => {
-      const selected = current.split_member_ids.includes(memberId);
+      const selected = current.split_user_ids.includes(userId);
 
       return {
         ...current,
-        split_member_ids: selected
-          ? current.split_member_ids.filter((id) => id !== memberId)
-          : [...current.split_member_ids, memberId],
+        split_user_ids: selected
+          ? current.split_user_ids.filter((id) => id !== userId)
+          : [...current.split_user_ids, userId],
       };
     });
   }
@@ -328,12 +323,13 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     setError(null);
 
     try {
-      const receiver = membersById.get(split.to_member_id);
-      const sender = membersById.get(split.from_member_id);
-      const receiverWallet = receiver?.wallet_address ?? "";
+      const expense = expensesById.get(split.expense_id);
+      if (!expense) throw new Error("Expense not found");
+
+      const receiverWallet = expense.paid_by_profile?.wallet_address ?? "";
       let txHash = mockHash();
       let settlementStatus: "confirmed" | "mocked" = "mocked";
-      let senderWallet = address ?? sender?.wallet_address ?? "mock-wallet";
+      let senderWallet = address ?? "mock-wallet";
 
       if (isConnected && address && isAddress(receiverWallet)) {
         if (chainId !== baseSepolia.id) {
@@ -359,7 +355,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         splitId: split.id,
         senderWallet,
         receiverWallet: receiverWallet || "mock-recipient",
-        amount: split.amount,
+        amount: split.amount_owed,
         txHash,
         status: settlementStatus,
       });
@@ -383,7 +379,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
 
     const optimisticUserMessage: AiMessage = {
       id: makeId(),
-      group_id: workspace.group.id,
+      workspace_id: workspace.workspace.id,
+      user_id: user?.id ?? null,
       role: "user",
       content: question,
       created_at: new Date().toISOString(),
@@ -399,14 +396,14 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     );
 
     try {
-      await saveAiMessage(workspace.group.id, "user", question);
+      await saveAiMessage(workspace.workspace.id, "user", question);
 
       const response = await fetch("/api/ai-summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          group: workspace.group,
+          workspace: workspace.workspace,
           members: workspace.members,
           expenses: workspace.expenses,
           splits: workspace.splits,
@@ -420,7 +417,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         mode?: "gemini" | "fallback";
         indicator?: string;
       };
-      const summary = result.summary ?? "I could not summarize this group yet.";
+      const summary =
+        result.summary ?? "I could not summarize this workspace yet.";
       setAiStatus(
         result.mode === "gemini"
           ? "gemini"
@@ -429,7 +427,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
             : "fallback",
       );
       const assistantMessage = await saveAiMessage(
-        workspace.group.id,
+        workspace.workspace.id,
         "assistant",
         summary,
       );
@@ -451,12 +449,12 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     }
   }
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-500 shadow-sm">
           <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden="true" />
-          Loading group workspace
+          Loading workspace
         </div>
       </main>
     );
@@ -468,8 +466,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         <SectionCard className="mx-auto max-w-3xl text-center">
           <EmptyState
             icon={Database}
-            title="Group not found"
-            body="This workspace does not exist in the active storage mode."
+            title="Workspace not found"
+            body="This workspace does not exist or your account is not a member."
             action={
               <Link
                 href="/dashboard"
@@ -485,14 +483,15 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     );
   }
 
-  const { group, members, expenses, splits, settlements, aiMessages } = workspace;
+  const { aiMessages, expenses, invites, settlements, splits, workspace: room } =
+    workspace;
   const sharePreview =
-    expenseForm.split_member_ids.length > 0
-      ? expenseForm.amount / expenseForm.split_member_ids.length
+    expenseForm.split_user_ids.length > 0
+      ? expenseForm.amount / expenseForm.split_user_ids.length
       : 0;
 
   return (
-    <AppShell eyebrow={`${group.name} workspace`}>
+    <AppShell eyebrow={`${room.name} workspace`}>
       <div className="space-y-8">
         <header className="relative overflow-hidden rounded-[34px] border border-white/80 bg-white/82 p-7 shadow-[0_30px_90px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-8">
           <div className="absolute -right-24 -top-28 size-72 rounded-full bg-teal-300/20 blur-3xl" />
@@ -507,19 +506,17 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
                 Dashboard
               </Link>
               <div className="mt-5 flex flex-wrap items-center gap-2">
-                <Badge tone="teal">{group.category}</Badge>
-                <Badge tone={storageMode === "supabase" ? "green" : "amber"}>
-                  {storageMode === "supabase" ? "Supabase" : "Local demo"}
-                </Badge>
+                <Badge tone="teal">{room.currency}</Badge>
+                <Badge tone="green">Private workspace</Badge>
                 <Badge tone={metrics.remaining < 0 ? "rose" : "green"}>
                   {metrics.remaining < 0 ? "Over budget" : "On budget"}
                 </Badge>
               </div>
               <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                {group.name}
+                {room.name}
               </h1>
               <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-                {group.description || "No description yet."}
+                {room.description || "No description yet."}
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:w-[420px]">
@@ -528,15 +525,15 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
                   Pending
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {formatMoney(metrics.pendingAmount, group.currency)}
+                  {formatMoney(metrics.pendingAmount, room.currency)}
                 </p>
               </div>
               <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/90 p-4 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-600">
-                  Testnet
+                  Your role
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-emerald-900">
-                  Base Sepolia
+                <p className="mt-2 text-2xl font-semibold capitalize text-emerald-900">
+                  {workspace.currentMember?.role ?? "member"}
                 </p>
               </div>
             </div>
@@ -546,8 +543,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         <WalletPanel />
 
         <div className="rounded-[24px] border border-sky-200 bg-sky-50/90 p-5 text-sm leading-6 text-sky-900 shadow-sm">
-          Testnet only: connected wallets send a tiny Base Sepolia ETH transfer.
-          Without a wallet, SplitSafe records a mock settlement for the demo.
+          Supabase RLS protects this workspace. Only active members can read
+          expenses, splits, AI messages, invites, and settlement history.
         </div>
 
         {error ? (
@@ -559,21 +556,21 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Total budget"
-            value={formatMoney(group.budget_amount, group.currency)}
-            detail="Group budget cap"
+            value={formatMoney(room.total_budget, room.currency)}
+            detail="Workspace budget cap"
             icon={CircleDollarSign}
             tone="blue"
           />
           <StatCard
             label="Total spent"
-            value={formatMoney(metrics.totalSpent, group.currency)}
+            value={formatMoney(metrics.totalSpent, room.currency)}
             detail={`${metrics.spentPercent.toFixed(0)}% of budget used`}
             icon={ReceiptText}
             tone="teal"
           />
           <StatCard
             label="Remaining"
-            value={formatMoney(metrics.remaining, group.currency)}
+            value={formatMoney(metrics.remaining, room.currency)}
             detail={metrics.remaining < 0 ? "Needs attention" : "Available budget"}
             icon={Wallet}
             tone={metrics.remaining < 0 ? "amber" : "green"}
@@ -581,7 +578,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           <StatCard
             label="Members"
             value={members.length.toString()}
-            detail="Wallet recipients"
+            detail="Active accounts"
             icon={Users}
             tone="slate"
           />
@@ -591,7 +588,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           <SectionHeader
             eyebrow="Budget health"
             title="Usage and category signal"
-            description={`Highest category: ${metrics.topCategory}. ${unpaidSplits.length} unpaid split${unpaidSplits.length === 1 ? "" : "s"} remain.`}
+            description={`Highest category: ${metrics.topCategory}. ${splits.filter((split) => split.status === "unpaid").length} unpaid split rows remain.`}
             action={
               <Badge tone={metrics.remaining < 0 ? "rose" : "green"}>
                 <TrendingUp className="size-3.5" aria-hidden="true" />
@@ -619,7 +616,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
                     {category}
                   </p>
                   <p className="mt-2 text-lg font-semibold text-slate-950">
-                    {formatMoney(amount, group.currency)}
+                    {formatMoney(amount, room.currency)}
                   </p>
                 </div>
               ))
@@ -631,24 +628,27 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           <div className="space-y-6">
             <MembersPanel
               members={members}
-              memberForm={memberForm}
-              memberSaving={memberSaving}
-              setMemberForm={setMemberForm}
-              onSubmit={handleAddMember}
+              invites={invites}
+              canManage={canManage}
+              inviteForm={inviteForm}
+              inviteSaving={inviteSaving}
+              inviteLink={inviteLink}
+              setInviteForm={setInviteForm}
+              onInvite={handleInvite}
             />
-
             <ExpenseFormPanel
               members={members}
-              groupCurrency={group.currency}
+              canManage={canManage}
+              currentUserId={user?.id ?? ""}
+              groupCurrency={room.currency}
               expenseForm={expenseForm}
               expenseSaving={expenseSaving}
               sharePreview={sharePreview}
               setExpenseForm={setExpenseForm}
-              toggleSplitMember={toggleSplitMember}
+              toggleSplitUser={toggleSplitUser}
               onSubmit={handleAddExpense}
             />
           </div>
-
           <div className="space-y-6">
             <AssistantPanel
               aiMessages={aiMessages}
@@ -658,21 +658,23 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               setAiQuestion={setAiQuestion}
               onSubmit={handleAskAi}
             />
-
             <BalancesPanel
               splits={splits}
-              membersById={membersById}
-              currency={group.currency}
+              expenses={expenses}
+              members={members}
+              currency={room.currency}
               settlingId={settlingId}
               onSettle={handleSettle}
             />
-
-            <ExpensesPanel expenses={expenses} members={members} currency={group.currency} />
-
+            <ExpensesPanel
+              expenses={expenses}
+              members={members}
+              currency={room.currency}
+            />
             {settlements.length > 0 ? (
               <SettlementHistoryPanel
                 settlements={settlements}
-                currency={group.currency}
+                currency={room.currency}
               />
             ) : null}
           </div>
@@ -684,131 +686,164 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
 
 function MembersPanel({
   members,
-  memberForm,
-  memberSaving,
-  setMemberForm,
-  onSubmit,
+  invites,
+  canManage,
+  inviteForm,
+  inviteSaving,
+  inviteLink,
+  setInviteForm,
+  onInvite,
 }: {
-  members: GroupMember[];
-  memberForm: CreateMemberInput;
-  memberSaving: boolean;
-  setMemberForm: React.Dispatch<React.SetStateAction<CreateMemberInput>>;
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
+  members: WorkspaceMember[];
+  invites: WorkspaceData["invites"];
+  canManage: boolean;
+  inviteForm: CreateInviteInput;
+  inviteSaving: boolean;
+  inviteLink: string | null;
+  setInviteForm: React.Dispatch<React.SetStateAction<CreateInviteInput>>;
+  onInvite: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
 }) {
   return (
     <SectionCard elevated>
       <SectionHeader
         eyebrow="People"
         title="Members"
-        description="Names and wallet addresses are used for split settlement."
+        description="Invite accounts by email. Access is enforced by Supabase RLS."
       />
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-4">
-        <FieldLabel label="Member name">
-          <input
-            value={memberForm.name}
-            onChange={(event) =>
-              setMemberForm((current) => ({ ...current, name: event.target.value }))
-            }
-            className={fieldClassName}
-            placeholder="Alex"
-          />
-        </FieldLabel>
-        <FieldLabel label="Wallet address">
-          <input
-            value={memberForm.wallet_address}
-            onChange={(event) =>
-              setMemberForm((current) => ({
-                ...current,
-                wallet_address: event.target.value,
-              }))
-            }
-            className={cn(fieldClassName, "font-mono")}
-            placeholder="0x..."
-          />
-        </FieldLabel>
-        <div className="grid grid-cols-[1fr_auto] gap-3">
-          <select
-            value={memberForm.role}
-            onChange={(event) =>
-              setMemberForm((current) => ({
-                ...current,
-                role: event.target.value as MemberRole,
-              }))
-            }
-            className={fieldClassName}
-          >
-            {memberRoles.map((role) => (
-              <option key={role} value={role}>
-                {role}
-              </option>
-            ))}
-          </select>
-          <PrimaryButton type="submit" disabled={memberSaving} className="px-4">
-            {memberSaving ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Plus className="size-4" aria-hidden="true" />
-            )}
-            Add
-          </PrimaryButton>
+      {canManage ? (
+        <form onSubmit={onInvite} className="mt-6 space-y-4">
+          <FieldLabel label="Invite email">
+            <input
+              value={inviteForm.invited_email}
+              onChange={(event) =>
+                setInviteForm((current) => ({
+                  ...current,
+                  invited_email: event.target.value,
+                }))
+              }
+              type="email"
+              className={fieldClassName}
+              placeholder="friend@example.com"
+            />
+          </FieldLabel>
+          <div className="grid grid-cols-[1fr_auto] gap-3">
+            <select
+              value={inviteForm.role}
+              onChange={(event) =>
+                setInviteForm((current) => ({
+                  ...current,
+                  role: event.target.value as CreateInviteInput["role"],
+                }))
+              }
+              className={fieldClassName}
+            >
+              <option value="member">member</option>
+              <option value="admin">admin</option>
+            </select>
+            <PrimaryButton type="submit" disabled={inviteSaving} className="px-4">
+              {inviteSaving ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <MailPlus className="size-4" aria-hidden="true" />
+              )}
+              Invite
+            </PrimaryButton>
+          </div>
+          {inviteLink ? (
+            <button
+              type="button"
+              onClick={() => void navigator.clipboard?.writeText(inviteLink)}
+              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-left text-xs font-semibold text-teal-800"
+            >
+              <span className="truncate">{inviteLink}</span>
+              <Copy className="size-4 shrink-0" aria-hidden="true" />
+            </button>
+          ) : null}
+        </form>
+      ) : (
+        <div className="mt-6 rounded-[22px] border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+          Only owners and admins can invite members.
         </div>
-      </form>
+      )}
 
       <div className="mt-6 space-y-3">
-        {members.length === 0 ? (
-          <EmptyState
-            icon={Users}
-            title="No members yet"
-            body="Add members before recording split expenses."
-          />
-        ) : (
-          members.map((member) => (
-            <div
-              key={member.id}
-              className="flex items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50/70 p-3"
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <AvatarToken name={member.name} />
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-slate-950">
-                    {member.name}
-                  </p>
-                  <p className="mt-1 truncate font-mono text-xs text-slate-500">
-                    {shortAddress(member.wallet_address)}
-                  </p>
-                </div>
+        {members.map((member) => (
+          <div
+            key={member.id}
+            className="flex items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50/70 p-3"
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <AvatarToken name={profileLabel(member.profile)} />
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-slate-950">
+                  {profileLabel(member.profile)}
+                </p>
+                <p className="mt-1 truncate text-xs text-slate-500">
+                  {member.profile?.email ?? "No email"}
+                </p>
               </div>
-              <Badge tone={member.role === "owner" ? "teal" : "slate"}>
-                {member.role}
-              </Badge>
             </div>
-          ))
-        )}
+            <Badge tone={member.role === "owner" ? "teal" : "slate"}>
+              {member.role}
+            </Badge>
+          </div>
+        ))}
       </div>
+
+      {invites.length > 0 ? (
+        <div className="mt-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+            Invites
+          </p>
+          <div className="mt-3 space-y-2">
+            {invites.slice(0, 4).map((invite) => (
+              <div
+                key={invite.id}
+                className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm"
+              >
+                <span className="truncate text-slate-600">
+                  {invite.invited_email}
+                </span>
+                <Badge tone={invite.status === "pending" ? "amber" : "green"}>
+                  {invite.status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </SectionCard>
   );
 }
 
 function ExpenseFormPanel({
   members,
+  canManage,
+  currentUserId,
   groupCurrency,
   expenseForm,
   expenseSaving,
   sharePreview,
   setExpenseForm,
-  toggleSplitMember,
+  toggleSplitUser,
   onSubmit,
 }: {
-  members: GroupMember[];
+  members: WorkspaceMember[];
+  canManage: boolean;
+  currentUserId: string;
   groupCurrency: string;
   expenseForm: CreateExpenseInput;
   expenseSaving: boolean;
   sharePreview: number;
   setExpenseForm: React.Dispatch<React.SetStateAction<CreateExpenseInput>>;
-  toggleSplitMember: (memberId: string) => void;
+  toggleSplitUser: (userId: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
 }) {
+  const payerOptions = canManage
+    ? members
+    : members.filter((member) => member.user_id === currentUserId);
+
   return (
     <SectionCard elevated>
       <SectionHeader
@@ -870,19 +905,19 @@ function ExpenseFormPanel({
 
         <FieldLabel label="Paid by">
           <select
-            value={expenseForm.paid_by_member_id}
+            value={expenseForm.paid_by}
             onChange={(event) =>
               setExpenseForm((current) => ({
                 ...current,
-                paid_by_member_id: event.target.value,
+                paid_by: event.target.value,
               }))
             }
             className={fieldClassName}
           >
             <option value="">Select payer</option>
-            {members.map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.name}
+            {payerOptions.map((member) => (
+              <option key={member.id} value={member.user_id}>
+                {profileLabel(member.profile)}
               </option>
             ))}
           </select>
@@ -901,14 +936,17 @@ function ExpenseFormPanel({
                 key={member.id}
                 className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700"
               >
-                <span className="flex items-center gap-3">
-                  <AvatarToken name={member.name} className="size-8 rounded-xl text-xs" />
-                  {member.name}
+                <span className="flex min-w-0 items-center gap-3">
+                  <AvatarToken
+                    name={profileLabel(member.profile)}
+                    className="size-8 rounded-xl text-xs"
+                  />
+                  <span className="truncate">{profileLabel(member.profile)}</span>
                 </span>
                 <input
                   type="checkbox"
-                  checked={expenseForm.split_member_ids.includes(member.id)}
-                  onChange={() => toggleSplitMember(member.id)}
+                  checked={expenseForm.split_user_ids.includes(member.user_id)}
+                  onChange={() => toggleSplitUser(member.user_id)}
                   className="size-4 accent-teal-600"
                 />
               </label>
@@ -963,18 +1001,16 @@ function AssistantPanel({
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
 }) {
   const status =
-    aiLoading
+    aiLoading || aiStatus === "gemini"
       ? { label: "Using Gemini AI", tone: "teal" as const }
-      : aiStatus === "gemini"
-        ? { label: "Using Gemini AI", tone: "teal" as const }
-        : aiStatus === "unavailable"
-          ? {
-              label: "AI unavailable, fallback response shown",
-              tone: "amber" as const,
-            }
-          : aiStatus === "fallback"
-            ? { label: "Using local fallback", tone: "slate" as const }
-            : { label: "Using local fallback", tone: "slate" as const };
+      : aiStatus === "unavailable"
+        ? {
+            label: "AI unavailable, fallback response shown",
+            tone: "amber" as const,
+          }
+        : aiStatus === "fallback"
+          ? { label: "Using local fallback", tone: "slate" as const }
+          : { label: "Using local fallback", tone: "slate" as const };
 
   return (
     <SectionCard elevated className="relative overflow-hidden">
@@ -1009,7 +1045,7 @@ function AssistantPanel({
           {aiMessages.length === 0 ? (
             <EmptyState
               icon={Bot}
-              title="Ask the group budget"
+              title="Ask the workspace budget"
               body="Try one of the prompt chips above or ask your own spending question."
             />
           ) : (
@@ -1066,25 +1102,28 @@ function AssistantPanel({
 
 function BalancesPanel({
   splits,
-  membersById,
+  expenses,
+  members,
   currency,
   settlingId,
   onSettle,
 }: {
   splits: ExpenseSplit[];
-  membersById: Map<string, GroupMember>;
+  expenses: Expense[];
+  members: WorkspaceMember[];
   currency: string;
   settlingId: string | null;
   onSettle: (split: ExpenseSplit) => Promise<void>;
 }) {
   const unpaidCount = splits.filter((split) => split.status === "unpaid").length;
+  const expensesById = new Map(expenses.map((expense) => [expense.id, expense]));
 
   return (
     <SectionCard elevated>
       <SectionHeader
         eyebrow="Settlement"
         title="Balances"
-        description={`${unpaidCount} unpaid balance${unpaidCount === 1 ? "" : "s"} ready for testnet settlement.`}
+        description={`${unpaidCount} unpaid balance${unpaidCount === 1 ? "" : "s"} ready for testnet or mock settlement.`}
       />
 
       <div className="mt-6 space-y-3">
@@ -1096,9 +1135,8 @@ function BalancesPanel({
           />
         ) : (
           splits.map((split) => {
-            const from = membersById.get(split.from_member_id);
-            const to = membersById.get(split.to_member_id);
-            const settled = split.status === "settled";
+            const expense = expensesById.get(split.expense_id);
+            const settled = split.status === "paid";
 
             return (
               <div
@@ -1107,18 +1145,21 @@ function BalancesPanel({
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex items-start gap-4">
-                    <AvatarToken name={from?.name ?? "Member"} />
+                    <AvatarToken name={profileLabel(split.profile)} />
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-slate-950">
-                          {from?.name ?? "Someone"} owes {to?.name ?? "someone"}
+                          {profileLabel(split.profile)} owes{" "}
+                          {expense
+                            ? userName(expense.paid_by, members)
+                            : "the payer"}
                         </p>
                         <Badge tone={settled ? "green" : "amber"}>
-                          {settled ? "settled" : "unpaid"}
+                          {settled ? "paid" : "unpaid"}
                         </Badge>
                       </div>
                       <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                        {formatMoney(split.amount, currency)}
+                        {formatMoney(split.amount_owed, currency)}
                       </p>
                       {split.settlement_tx_hash ? (
                         <a
@@ -1137,7 +1178,7 @@ function BalancesPanel({
                   {settled ? (
                     <span className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700">
                       <CheckCircle2 className="size-4" aria-hidden="true" />
-                      Settled
+                      Paid
                     </span>
                   ) : (
                     <PrimaryButton
@@ -1169,8 +1210,8 @@ function ExpensesPanel({
   members,
   currency,
 }: {
-  expenses: GroupWorkspaceData["expenses"];
-  members: GroupMember[];
+  expenses: Expense[];
+  members: WorkspaceMember[];
   currency: string;
 }) {
   return (
@@ -1185,7 +1226,7 @@ function ExpensesPanel({
           <EmptyState
             icon={ReceiptText}
             title="No expenses"
-            body="Add the first receipt to start tracking group spending."
+            body="Add the first receipt to start tracking workspace spending."
           />
         ) : (
           expenses.map((expense) => (
@@ -1200,9 +1241,7 @@ function ExpensesPanel({
                     <Badge tone="slate">{expense.category}</Badge>
                   </div>
                   <p className="mt-2 text-sm leading-6 text-slate-500">
-                    Paid by {memberName(expense.paid_by_member_id, members)}. Split
-                    between {expense.split_member_ids.length} member
-                    {expense.split_member_ids.length === 1 ? "" : "s"}.
+                    Paid by {userName(expense.paid_by, members)}.
                   </p>
                   {expense.notes ? (
                     <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -1226,7 +1265,7 @@ function SettlementHistoryPanel({
   settlements,
   currency,
 }: {
-  settlements: GroupWorkspaceData["settlements"];
+  settlements: WorkspaceData["settlements"];
   currency: string;
 }) {
   return (
@@ -1263,5 +1302,76 @@ function SettlementHistoryPanel({
         ))}
       </div>
     </SectionCard>
+  );
+}
+
+export function InviteAcceptance({ token }: { token: string }) {
+  const router = useRouter();
+  const { loading, user } = useAuth();
+  const [status, setStatus] = useState<"idle" | "accepting" | "done" | "error">(
+    "idle",
+  );
+  const [message, setMessage] = useState("Checking invite");
+
+  useEffect(() => {
+    if (loading) return;
+
+    if (!user) {
+      router.replace(`/login?next=/invite/${token}`);
+      return;
+    }
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setStatus("accepting");
+      setMessage("Accepting workspace invite");
+
+      acceptInvite(token)
+        .then((workspaceId) => {
+          if (cancelled) return;
+          setStatus("done");
+          setMessage("Invite accepted. Opening workspace.");
+          router.replace(`/workspaces/${workspaceId}`);
+        })
+        .catch((caught) => {
+          if (cancelled) return;
+          setStatus("error");
+          setMessage(caught instanceof Error ? caught.message : "Invite failed");
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, router, token, user]);
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_44%,#effdfa_100%)] px-4">
+      <SectionCard className="w-full max-w-xl text-center" elevated>
+        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
+          {status === "error" ? (
+            <MailPlus className="size-6" aria-hidden="true" />
+          ) : (
+            <Loader2
+              className={cn("size-6", status !== "done" && "animate-spin")}
+              aria-hidden="true"
+            />
+          )}
+        </div>
+        <h1 className="mt-5 text-2xl font-semibold tracking-tight text-slate-950">
+          Workspace invite
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-slate-500">{message}</p>
+        {status === "error" ? (
+          <Link
+            href="/dashboard"
+            className="mt-6 inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white"
+          >
+            Back to dashboard
+          </Link>
+        ) : null}
+      </SectionCard>
+    </main>
   );
 }

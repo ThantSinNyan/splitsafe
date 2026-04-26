@@ -10,7 +10,7 @@ export function getSupabaseSetupStatus() {
     return {
       configured: false,
       message:
-        "Supabase URL or public anon key is missing, so SplitSafe is using local demo storage.",
+        "Supabase URL or public anon key is missing. Account workspaces require Supabase Auth.",
     };
   }
 
@@ -50,8 +50,28 @@ export function getSupabaseClient() {
     browserClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        auth: {
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          persistSession: true,
+        },
+      },
     );
   }
 
   return browserClient;
+}
+
+export function requireSupabaseClient() {
+  const client = getSupabaseClient();
+
+  if (!client) {
+    throw new Error(
+      getSupabaseSetupStatus().message ??
+        "Supabase is not configured for SplitSafe.",
+    );
+  }
+
+  return client;
 }

@@ -23,7 +23,7 @@ import {
 const features = [
   {
     title: "Group budgets",
-    description: "Spin up shared USDC demo budgets for dinners, trips, dorms, and small teams.",
+    description: "Spin up private account-based budgets for dinners, trips, dorms, and small teams.",
     icon: WalletCards,
   },
   {
@@ -46,21 +46,21 @@ const features = [
 const useCases = ["Friends", "Trips", "Roommates", "Family", "Small teams"];
 
 const steps = [
-  "Create a group budget",
-  "Add members and wallets",
+  "Create a private workspace",
+  "Invite members by email",
   "Split expenses automatically",
   "Settle on Base Sepolia",
 ];
 
 export default function Home() {
   return (
-    <main className="min-h-screen overflow-hidden bg-white text-slate-950">
+    <main className="min-h-screen overflow-x-hidden bg-white text-slate-950">
       <section className="relative border-b border-slate-200/70 bg-[radial-gradient(circle_at_12%_14%,rgba(20,184,166,0.12),transparent_30%),radial-gradient(circle_at_88%_18%,rgba(56,189,248,0.10),transparent_28%),linear-gradient(180deg,#ffffff_0%,#f8fafc_64%,#f0fdfa_100%)]">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-white to-transparent" />
 
         <div className="relative mx-auto flex w-full max-w-7xl flex-col px-5 py-6 sm:px-8">
-          <nav className="flex items-center justify-between">
-            <Link href="/" aria-label="SplitSafe home">
+          <nav className="flex min-w-0 items-center justify-between gap-3">
+            <Link href="/" aria-label="SplitSafe home" className="min-w-0">
               <BrandMark />
             </Link>
             <div className="hidden items-center gap-6 text-sm font-semibold text-slate-500 md:flex">
@@ -76,7 +76,7 @@ export default function Home() {
             </div>
             <Link
               href="/dashboard"
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] hover:-translate-y-0.5 hover:bg-slate-800"
+              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-2xl bg-slate-950 px-3 text-sm font-semibold text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] hover:-translate-y-0.5 hover:bg-slate-800 sm:px-4"
             >
               Launch App
               <ArrowRight className="size-4" aria-hidden="true" />
@@ -84,15 +84,15 @@ export default function Home() {
           </nav>
 
           <div className="grid grid-cols-1 items-center gap-12 py-16 sm:py-20 lg:grid-cols-2 lg:gap-16 lg:py-24">
-            <div className="max-w-2xl">
+            <div className="min-w-0 max-w-2xl">
               <Badge tone="teal" className="bg-white/80 shadow-sm">
                 <Sparkles className="size-3.5" aria-hidden="true" />
                 AI + wallets for shared spending
               </Badge>
-              <h1 className="mt-6 max-w-2xl text-4xl font-semibold leading-[1.02] tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
+              <h1 className="mt-6 max-w-full text-4xl font-semibold leading-[1.02] tracking-tight text-slate-950 sm:max-w-2xl sm:text-5xl lg:text-6xl">
                 AI-powered onchain group budgeting
               </h1>
-              <p className="mt-6 max-w-xl text-base leading-8 text-slate-600 sm:text-lg">
+              <p className="mt-6 max-w-full text-base leading-8 text-slate-600 sm:max-w-xl sm:text-lg">
                 SplitSafe gives friends, students, families, and small teams a
                 polished workspace to budget, split expenses, connect wallets, and
                 settle on Base Sepolia without touching mainnet funds.
@@ -100,26 +100,26 @@ export default function Home() {
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:gap-4">
                 <Link
                   href="/dashboard"
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(15,23,42,0.20)] hover:-translate-y-0.5 hover:bg-slate-800"
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-6 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(15,23,42,0.20)] hover:-translate-y-0.5 hover:bg-slate-800 sm:w-auto"
                 >
                   Launch App
                   <ArrowRight className="size-4" aria-hidden="true" />
                 </Link>
                 <a
                   href="#how"
-                  className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white/85 px-6 text-sm font-semibold text-slate-800 shadow-sm backdrop-blur hover:-translate-y-0.5 hover:border-slate-300"
+                  className="inline-flex h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white/85 px-6 text-sm font-semibold text-slate-800 shadow-sm backdrop-blur hover:-translate-y-0.5 hover:border-slate-300 sm:w-auto"
                 >
-                  See demo flow
+                  See product flow
                 </a>
               </div>
-              <div className="mt-10 grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="mt-10 grid max-w-full grid-cols-1 gap-3 sm:max-w-xl sm:grid-cols-3">
                 <HeroMetric label="Budget" value="100 USDC" />
                 <HeroMetric label="Spent" value="30 USDC" />
                 <HeroMetric label="Pending" value="2 splits" />
               </div>
             </div>
 
-            <div className="flex w-full justify-center lg:justify-end">
+            <div className="flex min-w-0 justify-center lg:justify-end">
               <ProductPreview />
             </div>
           </div>
@@ -154,18 +154,18 @@ export default function Home() {
           <div className="grid gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
             <div>
               <Badge tone="teal" className="border-white/10 bg-white/10 text-teal-100">
-                Demo-ready flow
+                Account-ready flow
               </Badge>
               <h2 className="mt-6 text-4xl font-semibold tracking-tight sm:text-5xl">
                 From dinner receipt to testnet settlement in minutes.
               </h2>
               <p className="mt-5 text-base leading-7 text-slate-300">
-                The MVP is built around a single judge-friendly path: load demo
-                data, inspect the budget, ask AI, and settle one unpaid balance.
+                The MVP is built around a single judge-friendly path: sign in,
+                create a workspace, invite a member, ask AI, and settle a balance.
               </p>
               <Link href="/dashboard" className="mt-8 inline-flex">
                 <span className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-white px-5 text-sm font-semibold text-slate-950 hover:-translate-y-0.5">
-                  Start demo
+                  Start app
                   <ArrowRight className="size-4" aria-hidden="true" />
                 </span>
               </Link>
@@ -182,9 +182,9 @@ export default function Home() {
                   <h3 className="mt-5 text-lg font-semibold">{step}</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-400">
                     {index === 0
-                      ? "Set the shared budget and category."
+                      ? "Set the shared budget and currency."
                       : index === 1
-                        ? "Keep names and wallet addresses together."
+                        ? "Accept invites with Supabase Auth accounts."
                         : index === 2
                           ? "Split paid expenses across selected members."
                           : "Record the tx hash and mark balances settled."}
@@ -224,7 +224,7 @@ export default function Home() {
 
       <section className="border-y border-slate-200 bg-slate-50/80">
         <div className="mx-auto grid w-full max-w-7xl gap-5 px-5 py-16 sm:px-8 lg:grid-cols-3">
-          <ValueItem title="Testnet safe" body="Built for Base Sepolia and demo transactions." />
+          <ValueItem title="Testnet safe" body="Built for Base Sepolia and mock settlement." />
           <ValueItem title="AI resilient" body="Falls back to deterministic summaries without API keys." />
           <ValueItem title="Deployable" body="Supabase-ready, Vercel-ready, and easy to present." />
         </div>
@@ -240,17 +240,17 @@ export default function Home() {
 
 function ProductPreview() {
   return (
-    <div className="w-full max-w-xl rounded-[32px] border border-white/90 bg-white/85 p-3 shadow-[0_30px_90px_rgba(15,23,42,0.14)] backdrop-blur-xl sm:p-4">
+    <div className="w-full max-w-full rounded-[32px] border border-white/90 bg-white/85 p-3 shadow-[0_30px_90px_rgba(15,23,42,0.14)] backdrop-blur-xl sm:max-w-xl sm:p-4">
       <div className="rounded-[24px] border border-slate-200/90 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-600">
-              Live group
+              Private workspace
             </p>
             <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">
-              ABAC Dinner Group
+              Thailand Trip
             </h3>
-            <p className="mt-1 text-sm text-slate-500">3 members - Base Sepolia</p>
+            <p className="mt-1 text-sm text-slate-500">3 accounts - Base Sepolia</p>
           </div>
           <Badge tone="green">
             <CheckCircle2 className="size-3.5" aria-hidden="true" />

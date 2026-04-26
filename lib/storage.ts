@@ -1,70 +1,22 @@
-import { createDemoWorkspace } from "@/lib/demo-data";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
+import type { User } from "@supabase/supabase-js";
+import { requireSupabaseClient } from "@/lib/supabase";
 import { makeId, nowIso, roundMoney } from "@/lib/utils";
 import type {
   AiMessage,
   AiRole,
   CreateExpenseInput,
-  CreateGroupInput,
-  CreateMemberInput,
+  CreateInviteInput,
+  CreateWorkspaceInput,
   Expense,
   ExpenseSplit,
-  GroupMember,
-  GroupWorkspaceData,
+  Invite,
+  Profile,
   Settlement,
   SettlementInput,
-  SplitSafeGroup,
+  Workspace,
+  WorkspaceData,
+  WorkspaceMember,
 } from "@/types/splitsafe";
-
-type Store = {
-  groups: SplitSafeGroup[];
-  members: GroupMember[];
-  expenses: Expense[];
-  splits: ExpenseSplit[];
-  settlements: Settlement[];
-  aiMessages: AiMessage[];
-};
-
-const STORAGE_KEY = "splitsafe_store_v1";
-
-const emptyStore = (): Store => ({
-  groups: [],
-  members: [],
-  expenses: [],
-  splits: [],
-  settlements: [],
-  aiMessages: [],
-});
-
-export function getStorageMode() {
-  return isSupabaseConfigured() ? "supabase" : "demo";
-}
-
-function readStore(): Store {
-  if (typeof window === "undefined") return emptyStore();
-
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return emptyStore();
-    const parsed = JSON.parse(raw) as Partial<Store>;
-
-    return {
-      groups: parsed.groups ?? [],
-      members: parsed.members ?? [],
-      expenses: parsed.expenses ?? [],
-      splits: parsed.splits ?? [],
-      settlements: parsed.settlements ?? [],
-      aiMessages: parsed.aiMessages ?? [],
-    };
-  } catch {
-    return emptyStore();
-  }
-}
-
-function writeStore(store: Store) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-}
 
 function asRecord(value: unknown) {
   return (value ?? {}) as Record<string, unknown>;
@@ -82,35 +34,62 @@ function asNumber(value: unknown) {
   return typeof value === "number" ? value : Number(value ?? 0);
 }
 
-function asStringArray(value: unknown) {
-  return Array.isArray(value) ? value.map(String) : [];
-}
-
-function normalizeGroup(value: unknown): SplitSafeGroup {
+function normalizeProfile(value: unknown): Profile | null {
+  if (!value) return null;
   const row = asRecord(value);
 
   return {
     id: asText(row.id),
-    name: asText(row.name),
-    description: asNullableText(row.description),
-    budget_amount: asNumber(row.budget_amount),
-    currency: asText(row.currency, "USDC"),
-    category: asText(row.category, "other") as SplitSafeGroup["category"],
-    created_by_wallet: asNullableText(row.created_by_wallet),
+    name: asNullableText(row.name),
+    email: asNullableText(row.email),
+    avatar_url: asNullableText(row.avatar_url),
+    wallet_address: asNullableText(row.wallet_address),
     created_at: asText(row.created_at, nowIso()),
   };
 }
 
-function normalizeMember(value: unknown): GroupMember {
+function normalizeWorkspace(value: unknown): Workspace {
   const row = asRecord(value);
 
   return {
     id: asText(row.id),
-    group_id: asText(row.group_id),
+    owner_id: asText(row.owner_id),
     name: asText(row.name),
-    wallet_address: asText(row.wallet_address),
-    role: asText(row.role, "member") as GroupMember["role"],
+    description: asNullableText(row.description),
+    currency: asText(row.currency, "USD"),
+    total_budget: asNumber(row.total_budget),
     created_at: asText(row.created_at, nowIso()),
+  };
+}
+
+function normalizeMember(value: unknown): WorkspaceMember {
+  const row = asRecord(value);
+
+  return {
+    id: asText(row.id),
+    workspace_id: asText(row.workspace_id),
+    user_id: asText(row.user_id),
+    role: asText(row.role, "member") as WorkspaceMember["role"],
+    status: asText(row.status, "active") as WorkspaceMember["status"],
+    created_at: asText(row.created_at, nowIso()),
+    profile: normalizeProfile(row.profile ?? row.profiles),
+  };
+}
+
+function normalizeInvite(value: unknown): Invite {
+  const row = asRecord(value);
+
+  return {
+    id: asText(row.id),
+    workspace_id: asText(row.workspace_id),
+    invited_email: asText(row.invited_email),
+    invited_by: asText(row.invited_by),
+    invite_token: asText(row.invite_token),
+    role: asText(row.role, "member") as Invite["role"],
+    status: asText(row.status, "pending") as Invite["status"],
+    created_at: asText(row.created_at, nowIso()),
+    accepted_at: asNullableText(row.accepted_at),
+    expires_at: asNullableText(row.expires_at),
   };
 }
 
@@ -119,14 +98,14 @@ function normalizeExpense(value: unknown): Expense {
 
   return {
     id: asText(row.id),
-    group_id: asText(row.group_id),
+    workspace_id: asText(row.workspace_id),
+    paid_by: asText(row.paid_by),
     title: asText(row.title),
     amount: asNumber(row.amount),
     category: asText(row.category, "other"),
-    paid_by_member_id: asText(row.paid_by_member_id),
-    split_member_ids: asStringArray(row.split_member_ids),
     notes: asNullableText(row.notes),
     created_at: asText(row.created_at, nowIso()),
+    paid_by_profile: normalizeProfile(row.paid_by_profile ?? row.profiles),
   };
 }
 
@@ -136,14 +115,14 @@ function normalizeSplit(value: unknown): ExpenseSplit {
   return {
     id: asText(row.id),
     expense_id: asText(row.expense_id),
-    group_id: asText(row.group_id),
-    from_member_id: asText(row.from_member_id),
-    to_member_id: asText(row.to_member_id),
-    amount: asNumber(row.amount),
+    workspace_id: asText(row.workspace_id),
+    user_id: asText(row.user_id),
+    amount_owed: asNumber(row.amount_owed),
     status: asText(row.status, "unpaid") as ExpenseSplit["status"],
     settlement_tx_hash: asNullableText(row.settlement_tx_hash),
-    created_at: asText(row.created_at, nowIso()),
     settled_at: asNullableText(row.settled_at),
+    created_at: asText(row.created_at, nowIso()),
+    profile: normalizeProfile(row.profile ?? row.profiles),
   };
 }
 
@@ -152,14 +131,16 @@ function normalizeSettlement(value: unknown): Settlement {
 
   return {
     id: asText(row.id),
-    group_id: asText(row.group_id),
+    workspace_id: asText(row.workspace_id),
     expense_split_id: asText(row.expense_split_id),
+    sender_user_id: asText(row.sender_user_id),
+    receiver_user_id: asText(row.receiver_user_id),
     sender_wallet: asText(row.sender_wallet),
     receiver_wallet: asText(row.receiver_wallet),
     amount: asNumber(row.amount),
     tx_hash: asText(row.tx_hash),
     network: asText(row.network, "base-sepolia"),
-    status: asText(row.status, "confirmed"),
+    status: asText(row.status, "mocked") as Settlement["status"],
     created_at: asText(row.created_at, nowIso()),
   };
 }
@@ -169,7 +150,8 @@ function normalizeAiMessage(value: unknown): AiMessage {
 
   return {
     id: asText(row.id),
-    group_id: asText(row.group_id),
+    workspace_id: asText(row.workspace_id),
+    user_id: asNullableText(row.user_id),
     role: asText(row.role, "assistant") as AiRole,
     content: asText(row.content),
     created_at: asText(row.created_at, nowIso()),
@@ -177,398 +159,362 @@ function normalizeAiMessage(value: unknown): AiMessage {
 }
 
 function throwIfError(error: { code?: string; message?: string } | null) {
-  if (error) {
-    if (
-      error.code === "PGRST205" ||
-      error.message?.toLowerCase().includes("schema cache") ||
-      error.message?.toLowerCase().includes("could not find the table")
-    ) {
-      throw new Error(
-        "SplitSafe Supabase tables are missing. Run supabase/schema.sql in the Supabase SQL editor, then refresh the app.",
-      );
-    }
+  if (!error) return;
 
-    throw new Error(error.message ?? "SplitSafe data request failed");
+  if (
+    error.code === "PGRST205" ||
+    error.message?.toLowerCase().includes("schema cache") ||
+    error.message?.toLowerCase().includes("could not find the table")
+  ) {
+    throw new Error(
+      "SplitSafe Supabase v2 tables are missing. Run supabase/schema.sql in Supabase SQL Editor, then refresh.",
+    );
   }
+
+  throw new Error(error.message ?? "SplitSafe data request failed");
 }
 
-export async function listGroups() {
-  const supabase = getSupabaseClient();
+async function getCurrentUser() {
+  const supabase = requireSupabaseClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+  throwIfError(error);
 
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("groups")
-      .select("*")
-      .order("created_at", { ascending: false });
-    throwIfError(error);
-    return (data ?? []).map(normalizeGroup);
+  if (!user) {
+    throw new Error("Please sign in to use SplitSafe workspaces.");
   }
 
-  return readStore().groups.sort((a, b) =>
-    b.created_at.localeCompare(a.created_at),
-  );
+  return user;
+}
+
+export async function ensureProfile(user: User) {
+  const supabase = requireSupabaseClient();
+  const fallbackName = user.user_metadata?.full_name ?? user.user_metadata?.name;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .upsert({
+      id: user.id,
+      name:
+        typeof fallbackName === "string"
+          ? fallbackName
+          : user.email?.split("@")[0] ?? "SplitSafe user",
+      email: user.email?.toLowerCase() ?? null,
+      avatar_url:
+        typeof user.user_metadata?.avatar_url === "string"
+          ? user.user_metadata.avatar_url
+          : null,
+    })
+    .select("*")
+    .single();
+
+  throwIfError(error);
+  return normalizeProfile(data);
+}
+
+export async function listWorkspaces() {
+  await getCurrentUser();
+  const supabase = requireSupabaseClient();
+  const { data, error } = await supabase
+    .from("workspaces")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  throwIfError(error);
+  return (data ?? []).map(normalizeWorkspace);
 }
 
 export async function getDashboardStats() {
-  const supabase = getSupabaseClient();
+  await getCurrentUser();
+  const supabase = requireSupabaseClient();
+  const [workspaces, expenses, splits] = await Promise.all([
+    supabase.from("workspaces").select("total_budget"),
+    supabase.from("expenses").select("amount"),
+    supabase.from("expense_splits").select("status"),
+  ]);
 
-  if (supabase) {
-    const [groups, expenses, splits] = await Promise.all([
-      supabase.from("groups").select("budget_amount"),
-      supabase.from("expenses").select("amount"),
-      supabase.from("expense_splits").select("status"),
+  throwIfError(workspaces.error);
+  throwIfError(expenses.error);
+  throwIfError(splits.error);
+
+  return {
+    totalBudget: (workspaces.data ?? []).reduce(
+      (sum, row) => sum + asNumber(asRecord(row).total_budget),
+      0,
+    ),
+    totalSpent: (expenses.data ?? []).reduce(
+      (sum, row) => sum + asNumber(asRecord(row).amount),
+      0,
+    ),
+    pendingSettlements: (splits.data ?? []).filter(
+      (row) => asText(asRecord(row).status, "unpaid") === "unpaid",
+    ).length,
+  };
+}
+
+export async function createWorkspace(input: CreateWorkspaceInput) {
+  const user = await getCurrentUser();
+  await ensureProfile(user);
+
+  const supabase = requireSupabaseClient();
+  const { data, error } = await supabase
+    .from("workspaces")
+    .insert({
+      name: input.name.trim(),
+      description: input.description.trim() || null,
+      currency: input.currency.trim() || "USD",
+      total_budget: input.total_budget,
+      owner_id: user.id,
+    })
+    .select("*")
+    .single();
+  throwIfError(error);
+
+  const workspace = normalizeWorkspace(data);
+  const memberInsert = await supabase.from("workspace_members").insert({
+    workspace_id: workspace.id,
+    user_id: user.id,
+    role: "owner",
+    status: "active",
+  });
+  throwIfError(memberInsert.error);
+
+  return workspace;
+}
+
+export async function createSampleWorkspace() {
+  const workspace = await createWorkspace({
+    name: "Thailand Trip",
+    description: "Private sample workspace for food, transport, and rooms.",
+    currency: "USD",
+    total_budget: 100,
+  });
+
+  return workspace;
+}
+
+export async function getWorkspace(workspaceId: string): Promise<WorkspaceData | null> {
+  const user = await getCurrentUser();
+  const supabase = requireSupabaseClient();
+
+  const workspaceRequest = await supabase
+    .from("workspaces")
+    .select("*")
+    .eq("id", workspaceId)
+    .maybeSingle();
+
+  throwIfError(workspaceRequest.error);
+  if (!workspaceRequest.data) return null;
+
+  const [members, invites, expenses, splits, settlements, aiMessages] =
+    await Promise.all([
+      supabase
+        .from("workspace_members")
+        .select("*, profile:profiles(*)")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("invites")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("expenses")
+        .select("*, paid_by_profile:profiles(*)")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("expense_splits")
+        .select("*, profile:profiles(*)")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("settlements")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("ai_messages")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: true }),
     ]);
 
-    throwIfError(groups.error);
-    throwIfError(expenses.error);
-    throwIfError(splits.error);
+  throwIfError(members.error);
+  throwIfError(invites.error);
+  throwIfError(expenses.error);
+  throwIfError(splits.error);
+  throwIfError(settlements.error);
+  throwIfError(aiMessages.error);
 
-    return {
-      totalBudget: (groups.data ?? []).reduce(
-        (sum, row) => sum + asNumber(asRecord(row).budget_amount),
-        0,
-      ),
-      totalSpent: (expenses.data ?? []).reduce(
-        (sum, row) => sum + asNumber(asRecord(row).amount),
-        0,
-      ),
-      pendingSettlements: (splits.data ?? []).filter(
-        (row) => asText(asRecord(row).status, "unpaid") === "unpaid",
-      ).length,
-    };
-  }
+  const normalizedMembers = (members.data ?? []).map(normalizeMember);
 
-  const store = readStore();
   return {
-    totalBudget: store.groups.reduce((sum, group) => sum + group.budget_amount, 0),
-    totalSpent: store.expenses.reduce((sum, expense) => sum + expense.amount, 0),
-    pendingSettlements: store.splits.filter((split) => split.status === "unpaid")
-      .length,
+    workspace: normalizeWorkspace(workspaceRequest.data),
+    currentMember:
+      normalizedMembers.find((member) => member.user_id === user.id) ?? null,
+    members: normalizedMembers,
+    invites: (invites.data ?? []).map(normalizeInvite),
+    expenses: (expenses.data ?? []).map(normalizeExpense),
+    splits: (splits.data ?? []).map(normalizeSplit),
+    settlements: (settlements.data ?? []).map(normalizeSettlement),
+    aiMessages: (aiMessages.data ?? []).map(normalizeAiMessage),
   };
 }
 
-export async function createGroup(
-  input: CreateGroupInput,
-  createdByWallet?: string | null,
+export async function createInvite(
+  workspaceId: string,
+  input: CreateInviteInput,
 ) {
-  const group: SplitSafeGroup = {
-    id: makeId(),
-    name: input.name.trim(),
-    description: input.description.trim() || null,
-    budget_amount: input.budget_amount,
-    currency: input.currency || "USDC",
-    category: input.category,
-    created_by_wallet: createdByWallet ?? null,
-    created_at: nowIso(),
-  };
+  const user = await getCurrentUser();
+  const supabase = requireSupabaseClient();
+  const inviteToken = makeId().replace(/-/g, "");
 
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("groups")
-      .insert(group)
-      .select("*")
-      .single();
-    throwIfError(error);
-    return normalizeGroup(data);
-  }
+  const { data, error } = await supabase
+    .from("invites")
+    .insert({
+      workspace_id: workspaceId,
+      invited_email: input.invited_email.trim().toLowerCase(),
+      invited_by: user.id,
+      invite_token: inviteToken,
+      role: input.role,
+      status: "pending",
+    })
+    .select("*")
+    .single();
 
-  const store = readStore();
-  store.groups.unshift(group);
-  writeStore(store);
-  return group;
+  throwIfError(error);
+  return normalizeInvite(data);
 }
 
-export async function loadDemoData(createdByWallet?: string | null) {
-  const demo = createDemoWorkspace(createdByWallet);
-  const supabase = getSupabaseClient();
+export async function acceptInvite(inviteToken: string) {
+  await getCurrentUser();
+  const supabase = requireSupabaseClient();
+  const { data, error } = await supabase.rpc("accept_invite", {
+    target_invite_token: inviteToken,
+  });
 
-  if (supabase) {
-    const groupInsert = await supabase.from("groups").insert(demo.group);
-    throwIfError(groupInsert.error);
-
-    const memberInsert = await supabase.from("group_members").insert(demo.members);
-    throwIfError(memberInsert.error);
-
-    const expenseInsert = await supabase.from("expenses").insert(demo.expenses);
-    throwIfError(expenseInsert.error);
-
-    const splitInsert = await supabase.from("expense_splits").insert(demo.splits);
-    throwIfError(splitInsert.error);
-
-    return demo.group;
-  }
-
-  const store = readStore();
-  store.groups.unshift(demo.group);
-  store.members.unshift(...demo.members);
-  store.expenses.unshift(...demo.expenses);
-  store.splits.unshift(...demo.splits);
-  writeStore(store);
-  return demo.group;
+  throwIfError(error);
+  return String(data);
 }
 
-export async function getGroupWorkspace(
-  groupId: string,
-): Promise<GroupWorkspaceData | null> {
-  const supabase = getSupabaseClient();
+export async function addExpense(
+  workspaceId: string,
+  input: CreateExpenseInput,
+) {
+  const supabase = requireSupabaseClient();
+  const splitUserIds = input.split_user_ids;
+  const share = roundMoney(input.amount / splitUserIds.length);
 
-  if (supabase) {
-    const groupRequest = await supabase
-      .from("groups")
-      .select("*")
-      .eq("id", groupId)
-      .single();
+  const { data, error } = await supabase
+    .from("expenses")
+    .insert({
+      workspace_id: workspaceId,
+      paid_by: input.paid_by,
+      title: input.title.trim(),
+      amount: input.amount,
+      category: input.category.trim() || "other",
+      notes: input.notes.trim() || null,
+    })
+    .select("*, paid_by_profile:profiles(*)")
+    .single();
 
-    if (groupRequest.error) {
-      if (groupRequest.error.code === "PGRST116") return null;
-      throwIfError(groupRequest.error);
-    }
+  throwIfError(error);
+  const expense = normalizeExpense(data);
 
-    const [members, expenses, splits, settlements, aiMessages] =
-      await Promise.all([
-        supabase
-          .from("group_members")
-          .select("*")
-          .eq("group_id", groupId)
-          .order("created_at", { ascending: true }),
-        supabase
-          .from("expenses")
-          .select("*")
-          .eq("group_id", groupId)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("expense_splits")
-          .select("*")
-          .eq("group_id", groupId)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("settlements")
-          .select("*")
-          .eq("group_id", groupId)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("ai_messages")
-          .select("*")
-          .eq("group_id", groupId)
-          .order("created_at", { ascending: true }),
-      ]);
-
-    throwIfError(members.error);
-    throwIfError(expenses.error);
-    throwIfError(splits.error);
-    throwIfError(settlements.error);
-    throwIfError(aiMessages.error);
-
-    return {
-      group: normalizeGroup(groupRequest.data),
-      members: (members.data ?? []).map(normalizeMember),
-      expenses: (expenses.data ?? []).map(normalizeExpense),
-      splits: (splits.data ?? []).map(normalizeSplit),
-      settlements: (settlements.data ?? []).map(normalizeSettlement),
-      aiMessages: (aiMessages.data ?? []).map(normalizeAiMessage),
-    };
-  }
-
-  const store = readStore();
-  const group = store.groups.find((item) => item.id === groupId);
-  if (!group) return null;
-
-  return {
-    group,
-    members: store.members.filter((item) => item.group_id === groupId),
-    expenses: store.expenses.filter((item) => item.group_id === groupId),
-    splits: store.splits.filter((item) => item.group_id === groupId),
-    settlements: store.settlements.filter((item) => item.group_id === groupId),
-    aiMessages: store.aiMessages.filter((item) => item.group_id === groupId),
-  };
-}
-
-export async function addMember(groupId: string, input: CreateMemberInput) {
-  const member: GroupMember = {
-    id: makeId(),
-    group_id: groupId,
-    name: input.name.trim(),
-    wallet_address: input.wallet_address.trim(),
-    role: input.role,
-    created_at: nowIso(),
-  };
-
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("group_members")
-      .insert(member)
-      .select("*")
-      .single();
-    throwIfError(error);
-    return normalizeMember(data);
-  }
-
-  const store = readStore();
-  store.members.push(member);
-  writeStore(store);
-  return member;
-}
-
-export async function addExpense(groupId: string, input: CreateExpenseInput) {
-  const createdAt = nowIso();
-  const expenseId = makeId();
-  const splitMemberIds = input.split_member_ids;
-  const share = roundMoney(input.amount / splitMemberIds.length);
-
-  const expense: Expense = {
-    id: expenseId,
-    group_id: groupId,
-    title: input.title.trim(),
-    amount: input.amount,
-    category: input.category.trim() || "other",
-    paid_by_member_id: input.paid_by_member_id,
-    split_member_ids: splitMemberIds,
-    notes: input.notes.trim() || null,
-    created_at: createdAt,
-  };
-
-  const splits: ExpenseSplit[] = splitMemberIds
-    .filter((memberId) => memberId !== input.paid_by_member_id)
-    .map((memberId) => ({
-      id: makeId(),
-      expense_id: expenseId,
-      group_id: groupId,
-      from_member_id: memberId,
-      to_member_id: input.paid_by_member_id,
-      amount: share,
+  const splits = splitUserIds
+    .filter((userId) => userId !== input.paid_by)
+    .map((userId) => ({
+      workspace_id: workspaceId,
+      expense_id: expense.id,
+      user_id: userId,
+      amount_owed: share,
       status: "unpaid",
-      settlement_tx_hash: null,
-      created_at: createdAt,
-      settled_at: null,
     }));
 
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    const expenseInsert = await supabase
-      .from("expenses")
-      .insert(expense)
-      .select("*")
-      .single();
-    throwIfError(expenseInsert.error);
-
-    if (splits.length > 0) {
-      const splitInsert = await supabase.from("expense_splits").insert(splits);
-      throwIfError(splitInsert.error);
-    }
-
-    return {
-      expense: normalizeExpense(expenseInsert.data),
-      splits,
-    };
+  if (splits.length > 0) {
+    const splitInsert = await supabase.from("expense_splits").insert(splits);
+    throwIfError(splitInsert.error);
   }
 
-  const store = readStore();
-  store.expenses.unshift(expense);
-  store.splits.unshift(...splits);
-  writeStore(store);
-  return { expense, splits };
+  return expense;
 }
 
 export async function recordSettlement(input: SettlementInput) {
-  const supabase = getSupabaseClient();
+  const user = await getCurrentUser();
+  const supabase = requireSupabaseClient();
   const settledAt = nowIso();
 
-  if (supabase) {
-    const splitRequest = await supabase
-      .from("expense_splits")
-      .select("*")
-      .eq("id", input.splitId)
-      .single();
-    throwIfError(splitRequest.error);
+  const splitRequest = await supabase
+    .from("expense_splits")
+    .select("*")
+    .eq("id", input.splitId)
+    .single();
+  throwIfError(splitRequest.error);
+  const split = normalizeSplit(splitRequest.data);
 
-    const split = normalizeSplit(splitRequest.data);
-    const updateRequest = await supabase
-      .from("expense_splits")
-      .update({
-        status: "settled",
-        settlement_tx_hash: input.txHash,
-        settled_at: settledAt,
-      })
-      .eq("id", input.splitId);
-    throwIfError(updateRequest.error);
+  const expenseRequest = await supabase
+    .from("expenses")
+    .select("*")
+    .eq("id", split.expense_id)
+    .single();
+  throwIfError(expenseRequest.error);
+  const expense = normalizeExpense(expenseRequest.data);
 
-    const settlement: Settlement = {
-      id: makeId(),
-      group_id: split.group_id,
+  const updateRequest = await supabase
+    .from("expense_splits")
+    .update({
+      status: "paid",
+      settlement_tx_hash: input.txHash,
+      settled_at: settledAt,
+    })
+    .eq("id", input.splitId);
+  throwIfError(updateRequest.error);
+
+  const insertRequest = await supabase
+    .from("settlements")
+    .insert({
+      workspace_id: split.workspace_id,
       expense_split_id: split.id,
+      sender_user_id: user.id,
+      receiver_user_id: expense.paid_by,
       sender_wallet: input.senderWallet,
       receiver_wallet: input.receiverWallet,
       amount: input.amount,
       tx_hash: input.txHash,
       network: "base-sepolia",
       status: input.status,
-      created_at: settledAt,
-    };
+    })
+    .select("*")
+    .single();
+  throwIfError(insertRequest.error);
 
-    const insertRequest = await supabase
-      .from("settlements")
-      .insert(settlement)
-      .select("*")
-      .single();
-    throwIfError(insertRequest.error);
-
-    return normalizeSettlement(insertRequest.data);
-  }
-
-  const store = readStore();
-  const split = store.splits.find((item) => item.id === input.splitId);
-  if (!split) throw new Error("Split not found");
-
-  split.status = "settled";
-  split.settlement_tx_hash = input.txHash;
-  split.settled_at = settledAt;
-
-  const settlement: Settlement = {
-    id: makeId(),
-    group_id: split.group_id,
-    expense_split_id: split.id,
-    sender_wallet: input.senderWallet,
-    receiver_wallet: input.receiverWallet,
-    amount: input.amount,
-    tx_hash: input.txHash,
-    network: "base-sepolia",
-    status: input.status,
-    created_at: settledAt,
-  };
-
-  store.settlements.unshift(settlement);
-  writeStore(store);
-  return settlement;
+  return normalizeSettlement(insertRequest.data);
 }
 
 export async function saveAiMessage(
-  groupId: string,
+  workspaceId: string,
   role: AiRole,
   content: string,
 ) {
-  const message: AiMessage = {
-    id: makeId(),
-    group_id: groupId,
-    role,
-    content,
-    created_at: nowIso(),
-  };
+  const supabase = requireSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("ai_messages")
-      .insert(message)
-      .select("*")
-      .single();
-    throwIfError(error);
-    return normalizeAiMessage(data);
-  }
+  const { data, error } = await supabase
+    .from("ai_messages")
+    .insert({
+      workspace_id: workspaceId,
+      user_id: user?.id ?? null,
+      role,
+      content,
+    })
+    .select("*")
+    .single();
 
-  const store = readStore();
-  store.aiMessages.push(message);
-  writeStore(store);
-  return message;
+  throwIfError(error);
+  return normalizeAiMessage(data);
 }

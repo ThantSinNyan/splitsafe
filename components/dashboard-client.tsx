@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { useAccount, useChainId } from "wagmi";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   CircleDollarSign,
@@ -11,9 +11,11 @@ import {
   Loader2,
   Plus,
   ReceiptText,
+  ShieldCheck,
   Sparkles,
   WalletCards,
 } from "lucide-react";
+import { useAuth } from "@/components/auth-provider";
 import { AppShell } from "@/components/app-shell";
 import {
   AvatarToken,
@@ -28,37 +30,20 @@ import {
   textareaClassName,
 } from "@/components/ui-kit";
 import { WalletPanel } from "@/components/wallet-panel";
-import { baseSepolia } from "@/lib/wagmi";
-import { getSupabaseSetupStatus } from "@/lib/supabase";
 import {
-  createGroup,
+  createSampleWorkspace,
+  createWorkspace,
   getDashboardStats,
-  getStorageMode,
-  listGroups,
-  loadDemoData,
+  listWorkspaces,
 } from "@/lib/storage";
-import { cn, formatMoney, shortAddress } from "@/lib/utils";
-import type {
-  CreateGroupInput,
-  GroupCategory,
-  SplitSafeGroup,
-} from "@/types/splitsafe";
+import { formatMoney, profileLabel } from "@/lib/utils";
+import type { CreateWorkspaceInput, Workspace } from "@/types/splitsafe";
 
-const categories: GroupCategory[] = [
-  "food",
-  "travel",
-  "family",
-  "event",
-  "dorm",
-  "other",
-];
-
-const initialForm: CreateGroupInput = {
+const initialForm: CreateWorkspaceInput = {
   name: "",
   description: "",
-  budget_amount: 100,
-  currency: "USDC",
-  category: "food",
+  total_budget: 100,
+  currency: "USD",
 };
 
 type DashboardStats = {
@@ -74,106 +59,105 @@ const emptyStats: DashboardStats = {
 };
 
 export function DashboardClient() {
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
-  const [groups, setGroups] = useState<SplitSafeGroup[]>([]);
+  const router = useRouter();
+  const { loading: authLoading, profile, setupMessage, supabaseReady, user } =
+    useAuth();
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
-  const [form, setForm] = useState<CreateGroupInput>(initialForm);
-  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState<CreateWorkspaceInput>(initialForm);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [demoLoading, setDemoLoading] = useState(false);
+  const [sampleLoading, setSampleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const storageMode = getStorageMode();
-  const supabaseSetup = getSupabaseSetupStatus();
 
-  const networkLabel = useMemo(() => {
-    if (!isConnected) return "Demo mode";
-    return chainId === baseSepolia.id ? "Base Sepolia" : "Switch network";
-  }, [chainId, isConnected]);
+  const displayName = useMemo(
+    () => profileLabel({ name: profile?.name, email: profile?.email }),
+    [profile?.email, profile?.name],
+  );
 
-  async function refreshDashboard() {
+  useEffect(() => {
+    if (!authLoading && !user) router.replace("/login?next=/dashboard");
+  }, [authLoading, router, user]);
+
+  const refreshDashboard = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
     setError(null);
 
     try {
-      const [nextGroups, nextStats] = await Promise.all([
-        listGroups(),
+      const [nextWorkspaces, nextStats] = await Promise.all([
+        listWorkspaces(),
         getDashboardStats(),
       ]);
-      setGroups(nextGroups);
+      setWorkspaces(nextWorkspaces);
       setStats(nextStats);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load groups");
+      setError(
+        caught instanceof Error ? caught.message : "Could not load workspaces",
+      );
     } finally {
       setLoading(false);
     }
-  }
+  }, [user]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!user) return;
 
-    queueMicrotask(async () => {
-      setLoading(true);
-      setError(null);
+    queueMicrotask(() => void refreshDashboard());
+  }, [refreshDashboard, user]);
 
-      try {
-        const [nextGroups, nextStats] = await Promise.all([
-          listGroups(),
-          getDashboardStats(),
-        ]);
-        if (!cancelled) {
-          setGroups(nextGroups);
-          setStats(nextStats);
-        }
-      } catch (caught) {
-        if (!cancelled) {
-          setError(
-            caught instanceof Error ? caught.message : "Could not load groups",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function handleCreateGroup(event: React.FormEvent<HTMLFormElement>) {
+  async function handleCreateWorkspace(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError(null);
 
     try {
-      if (!form.name.trim()) throw new Error("Group name is required");
-      if (!Number.isFinite(form.budget_amount) || form.budget_amount <= 0) {
+      if (!form.name.trim()) throw new Error("Workspace name is required");
+      if (!Number.isFinite(form.total_budget) || form.total_budget <= 0) {
         throw new Error("Budget amount must be greater than zero");
       }
 
-      await createGroup(form, address);
+      const workspace = await createWorkspace(form);
       setForm(initialForm);
       await refreshDashboard();
+      router.push(`/workspaces/${workspace.id}`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not create group");
+      setError(
+        caught instanceof Error ? caught.message : "Could not create workspace",
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleLoadDemoData() {
-    setDemoLoading(true);
+  async function handleCreateSample() {
+    setSampleLoading(true);
     setError(null);
 
     try {
-      await loadDemoData(address);
+      const workspace = await createSampleWorkspace();
       await refreshDashboard();
+      router.push(`/workspaces/${workspace.id}`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load demo data");
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not create sample workspace",
+      );
     } finally {
-      setDemoLoading(false);
+      setSampleLoading(false);
     }
+  }
+
+  if (authLoading || (!user && supabaseReady)) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-500 shadow-sm">
+          <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden="true" />
+          Restoring session
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -185,62 +169,64 @@ export function DashboardClient() {
           <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
             <div className="max-w-3xl">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={storageMode === "supabase" ? "green" : "amber"}>
-                  {storageMode === "supabase" ? "Supabase synced" : "Local demo mode"}
+                <Badge tone={supabaseReady ? "green" : "amber"}>
+                  {supabaseReady ? "Supabase Auth active" : "Setup required"}
                 </Badge>
-                <Badge tone={isConnected ? "green" : "slate"}>{networkLabel}</Badge>
+                <Badge tone="teal">
+                  <ShieldCheck className="size-3.5" aria-hidden="true" />
+                  RLS protected
+                </Badge>
               </div>
               <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                Group finance command center
+                My workspaces
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-                Create budget rooms, load a judge-friendly demo, and open a
-                workspace where expenses, balances, AI, and testnet settlement
-                live together.
+                Welcome, {displayName}. Create private budget workspaces, invite
+                members by email, and keep every group isolated to its members.
               </p>
             </div>
             <PrimaryButton
               type="button"
-              onClick={handleLoadDemoData}
-              disabled={demoLoading}
-              className="min-w-48 bg-gradient-to-r from-slate-950 to-teal-900"
+              onClick={() => void handleCreateSample()}
+              disabled={!supabaseReady || sampleLoading}
+              className="min-w-56 bg-gradient-to-r from-slate-950 to-teal-900"
             >
-              {demoLoading ? (
+              {sampleLoading ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
               ) : (
                 <Sparkles className="size-4" aria-hidden="true" />
               )}
-              Load Demo Data
+              Create sample workspace
             </PrimaryButton>
           </div>
         </header>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard
-            label="Total groups"
-            value={groups.length.toString()}
-            detail="Active shared budgets"
+            label="Workspaces"
+            value={workspaces.length.toString()}
+            detail="Private groups you belong to"
             icon={WalletCards}
             tone="teal"
           />
           <StatCard
             label="Total budget"
-            value={formatMoney(stats.totalBudget, "USDC")}
-            detail="Across all workspaces"
+            value={formatMoney(stats.totalBudget, "USD")}
+            detail="Across your workspaces"
             icon={CircleDollarSign}
             tone="blue"
           />
           <StatCard
             label="Total spent"
-            value={formatMoney(stats.totalSpent, "USDC")}
-            detail="Recorded expenses"
+            value={formatMoney(stats.totalSpent, "USD")}
+            detail="Visible to your memberships"
             icon={ReceiptText}
             tone="green"
           />
           <StatCard
-            label="Pending settlement"
+            label="Pending splits"
             value={stats.pendingSettlements.toString()}
-            detail="Unpaid split rows"
+            detail="Unpaid balances"
             icon={Landmark}
             tone="amber"
           />
@@ -248,10 +234,9 @@ export function DashboardClient() {
 
         <WalletPanel />
 
-        {storageMode === "demo" ? (
+        {!supabaseReady ? (
           <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 p-5 text-sm leading-6 text-amber-900 shadow-sm">
-            {supabaseSetup.message} The demo flow stays fully usable on this
-            machine.
+            {setupMessage}
           </div>
         ) : null}
 
@@ -265,19 +250,19 @@ export function DashboardClient() {
           <SectionCard id="create" elevated>
             <SectionHeader
               eyebrow="New workspace"
-              title="Create a group"
-              description="Set a budget and category. Members and expenses are added inside the workspace."
+              title="Create a workspace"
+              description="Set the budget shell first. Members and expenses are managed inside the workspace."
             />
 
-            <form onSubmit={handleCreateGroup} className="mt-6 space-y-5">
-              <FieldLabel label="Group name">
+            <form onSubmit={handleCreateWorkspace} className="mt-6 space-y-5">
+              <FieldLabel label="Workspace name">
                 <input
                   value={form.name}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, name: event.target.value }))
                   }
                   className={fieldClassName}
-                  placeholder="Thailand trip"
+                  placeholder="Thailand Trip"
                 />
               </FieldLabel>
 
@@ -301,44 +286,48 @@ export function DashboardClient() {
                     type="number"
                     min="1"
                     step="0.01"
-                    value={form.budget_amount}
+                    value={form.total_budget}
                     onChange={(event) =>
                       setForm((current) => ({
                         ...current,
-                        budget_amount: Number(event.target.value),
+                        total_budget: Number(event.target.value),
                       }))
                     }
                     className={fieldClassName}
                   />
                 </FieldLabel>
 
-                <FieldLabel label="Category">
+                <FieldLabel label="Currency">
                   <select
-                    value={form.category}
+                    value={form.currency}
                     onChange={(event) =>
                       setForm((current) => ({
                         ...current,
-                        category: event.target.value as GroupCategory,
+                        currency: event.target.value,
                       }))
                     }
                     className={fieldClassName}
                   >
-                    {categories.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
+                    {["USD", "USDC", "THB", "EUR", "SGD"].map((currency) => (
+                      <option key={currency} value={currency}>
+                        {currency}
                       </option>
                     ))}
                   </select>
                 </FieldLabel>
               </div>
 
-              <PrimaryButton type="submit" disabled={saving} className="w-full">
+              <PrimaryButton
+                type="submit"
+                disabled={!supabaseReady || saving}
+                className="w-full"
+              >
                 {saving ? (
                   <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                 ) : (
                   <Plus className="size-4" aria-hidden="true" />
                 )}
-                Create group
+                Create workspace
               </PrimaryButton>
             </form>
           </SectionCard>
@@ -346,25 +335,21 @@ export function DashboardClient() {
           <SectionCard id="groups" elevated>
             <SectionHeader
               eyebrow="Portfolio"
-              title="Groups"
-              description={
-                isConnected
-                  ? `Wallet connected as ${shortAddress(address)}.`
-                  : "Wallet is optional until you settle a balance."
-              }
+              title="My Workspaces"
+              description="Only workspaces where you are owner or member appear here."
               action={
                 <button
                   type="button"
-                  onClick={handleLoadDemoData}
-                  disabled={demoLoading}
+                  onClick={() => void handleCreateSample()}
+                  disabled={!supabaseReady || sampleLoading}
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-4 text-sm font-semibold text-teal-800 hover:-translate-y-0.5 hover:bg-teal-100"
                 >
-                  {demoLoading ? (
+                  {sampleLoading ? (
                     <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                   ) : (
                     <Sparkles className="size-4" aria-hidden="true" />
                   )}
-                  Demo data
+                  Sample
                 </button>
               }
             />
@@ -373,46 +358,46 @@ export function DashboardClient() {
               {loading ? (
                 <div className="flex min-h-72 items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-slate-500">
                   <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
-                  Loading groups
+                  Loading workspaces
                 </div>
-              ) : groups.length === 0 ? (
+              ) : workspaces.length === 0 ? (
                 <EmptyState
                   icon={Database}
-                  title="No groups yet"
-                  body="Create a new group or load ABAC Dinner Group to show the complete hackathon flow."
+                  title="No workspaces yet"
+                  body="Create Thailand Trip or invite another account to prove private multi-user access."
                   action={
                     <button
                       type="button"
-                      onClick={handleLoadDemoData}
-                      disabled={demoLoading}
+                      onClick={() => void handleCreateSample()}
+                      disabled={!supabaseReady || sampleLoading}
                       className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white"
                     >
                       <Sparkles className="size-4" aria-hidden="true" />
-                      Load demo
+                      Create sample
                     </button>
                   }
                 />
               ) : (
                 <div className="grid gap-4">
-                  {groups.map((group) => (
+                  {workspaces.map((workspace) => (
                     <Link
-                      key={group.id}
-                      href={`/groups/${group.id}`}
+                      key={workspace.id}
+                      href={`/workspaces/${workspace.id}`}
                       className="group relative overflow-hidden rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-[0_24px_70px_rgba(15,23,42,0.09)]"
                     >
                       <div className="absolute inset-y-0 right-0 w-28 bg-gradient-to-l from-teal-50 to-transparent opacity-0 group-hover:opacity-100" />
                       <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <div className="flex min-w-0 items-start gap-4">
-                          <AvatarToken name={group.name} />
+                          <AvatarToken name={workspace.name} />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <h3 className="truncate text-lg font-semibold tracking-tight text-slate-950">
-                                {group.name}
+                                {workspace.name}
                               </h3>
-                              <Badge tone="slate">{group.category}</Badge>
+                              <Badge tone="slate">{workspace.currency}</Badge>
                             </div>
                             <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">
-                              {group.description || "No description yet"}
+                              {workspace.description || "No description yet"}
                             </p>
                           </div>
                         </div>
@@ -422,14 +407,13 @@ export function DashboardClient() {
                               Budget
                             </p>
                             <p className="mt-1 font-semibold text-slate-950">
-                              {formatMoney(group.budget_amount, group.currency)}
+                              {formatMoney(
+                                workspace.total_budget,
+                                workspace.currency,
+                              )}
                             </p>
                           </div>
-                          <span
-                            className={cn(
-                              "flex size-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 group-hover:border-teal-200 group-hover:text-teal-700",
-                            )}
-                          >
+                          <span className="flex size-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 group-hover:border-teal-200 group-hover:text-teal-700">
                             <ArrowRight className="size-4" aria-hidden="true" />
                           </span>
                         </div>

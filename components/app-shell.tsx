@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  LogOut,
   LayoutDashboard,
   ReceiptText,
   Sparkles,
   WalletCards,
 } from "lucide-react";
-import { BrandMark } from "@/components/ui-kit";
+import { useAuth } from "@/components/auth-provider";
+import { AvatarToken, BrandMark } from "@/components/ui-kit";
 import { WalletMiniControl } from "@/components/wallet-panel";
 import { cn } from "@/lib/utils";
 
@@ -19,7 +21,9 @@ const navItems = [
 ];
 
 function isActiveNav(pathname: string, label: string) {
-  if (pathname.startsWith("/groups")) return label === "Groups";
+  if (pathname.startsWith("/groups") || pathname.startsWith("/workspaces")) {
+    return label === "Groups";
+  }
   if (pathname === "/dashboard") return label === "Dashboard";
   return false;
 }
@@ -32,6 +36,7 @@ export function AppShell({
   eyebrow?: string;
 }) {
   const pathname = usePathname();
+  const { profile, signOut, user } = useAuth();
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.10),transparent_34%),linear-gradient(180deg,#ffffff_0%,#f8fafc_42%,#eefdfa_100%)] text-slate-950">
@@ -59,7 +64,40 @@ export function AppShell({
               );
             })}
           </nav>
-          <WalletMiniControl />
+          <div className="flex items-center gap-2">
+            {user ? (
+              <div className="hidden items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm xl:flex">
+                <AvatarToken
+                  name={profile?.name ?? profile?.email ?? "User"}
+                  className="size-8 rounded-xl text-xs"
+                />
+                <div className="max-w-36">
+                  <p className="truncate text-sm font-semibold text-slate-950">
+                    {profile?.name ?? "SplitSafe user"}
+                  </p>
+                  <p className="truncate text-xs text-slate-500">
+                    {profile?.email ?? "Signed in"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void signOut()}
+                  className="ml-1 flex size-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50 hover:text-slate-900"
+                  aria-label="Log out"
+                >
+                  <LogOut className="size-4" aria-hidden="true" />
+                </button>
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="hidden h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm hover:-translate-y-0.5 xl:inline-flex"
+              >
+                Login
+              </Link>
+            )}
+            <WalletMiniControl />
+          </div>
         </div>
       </header>
 
@@ -93,11 +131,11 @@ export function AppShell({
                 <Sparkles className="size-5" aria-hidden="true" />
               </div>
               <p className="mt-4 text-sm font-semibold text-slate-950">
-                {eyebrow ?? "Hackathon demo mode"}
+                {eyebrow ?? "Account workspace mode"}
               </p>
               <p className="mt-2 text-xs leading-5 text-slate-500">
-                Testnet-only settlements, AI fallback, and local demo storage keep the
-                flow resilient.
+                Authenticated workspaces, RLS-backed data, AI summaries, and
+                testnet settlement keep the flow secure.
               </p>
             </div>
           </div>

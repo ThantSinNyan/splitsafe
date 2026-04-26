@@ -2,45 +2,44 @@
 
 SplitSafe is an AI-powered onchain group budgeting and payment assistant for friends, students, families, and small teams.
 
-Traditional split apps track who owes money. SplitSafe helps a group create a budget, add members, record expenses, calculate equal splits, settle unpaid balances on Base Sepolia, and ask an assistant to explain group spending in plain language.
-
 Live demo: [https://splitsafe.vercel.app](https://splitsafe.vercel.app)
+
+## What Changed
+
+SplitSafe is now a real multi-user app:
+
+- Supabase Auth accounts with Google and email/password login
+- Session restore on refresh
+- Private workspaces scoped by membership
+- Email invite links for members and admins
+- Supabase Row Level Security on all app tables
+- Workspace expenses, equal splits, balances, settlement history, and AI messages
+- Gemini server-side AI with local fallback
 
 ## Problem
 
-Group spending is messy. People track expenses in chats, spreadsheets, and notes, then settle later with little context. Existing tools usually stop at "who owes who" and do not connect the budget, wallet settlement, and spending explanation.
+Group spending is messy. People track expenses in chats, spreadsheets, and notes, then settle later with little context. Existing apps usually stop at "who owes who" and do not connect budget, wallet settlement, and spending explanation.
 
 ## Solution
 
-SplitSafe gives each group a lightweight workspace:
+SplitSafe gives each group a private workspace:
 
-- Create a budget in demo USDC
-- Add members and wallet addresses
+- Create a budget such as "Thailand Trip" with 100 USD
+- Invite members by email
 - Add expenses and calculate equal splits
-- See outstanding balances clearly
-- Settle on Base Sepolia testnet or mock-settle without a wallet
-- Ask an AI-style assistant for summaries and budget answers
-
-## Features
-
-- Landing page with a clean hackathon pitch
-- Dashboard with wallet connection, group creation, and group list
-- Supabase-backed groups, members, expenses, splits, settlements, and AI messages
-- Local demo mode when Supabase keys are missing
-- ABAC Dinner Group demo data button
-- Base Sepolia support through wagmi, viem, and RainbowKit
-- Testnet settlement flow with Basescan transaction links
-- `/api/ai-summary` route with server-side Gemini support and rule-based fallback
-- Simple Solidity registry contract in `contracts/SplitSafeRegistry.sol`
+- See unpaid balances clearly
+- Ask SplitSafe AI for summaries and suggestions
+- Mock-settle or settle with Base Sepolia testnet wallets
 
 ## Tech Stack
 
 - Next.js App Router + TypeScript
 - Tailwind CSS
-- Supabase
+- Supabase Auth + Postgres + RLS
+- Gemini API through a server-only Next.js route
 - wagmi + viem + RainbowKit
 - Base Sepolia testnet
-- Vercel-ready deployment
+- Vercel production deploy
 
 ## Setup
 
@@ -61,20 +60,31 @@ Environment variables:
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
-NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=
 GEMINI_API_KEY=
 ```
 
-The app still works without Supabase or Gemini keys. Without Supabase, it uses localStorage. Without `GEMINI_API_KEY`, `/api/ai-summary` returns a rule-based assistant response.
+`GEMINI_API_KEY` must stay server-only. Never rename it to `NEXT_PUBLIC_GEMINI_API_KEY`.
+
+## Supabase Setup
+
+1. Create or open your Supabase project.
+2. Go to **SQL Editor**.
+3. Run `supabase/schema.sql`.
+4. Go to **Authentication > Providers** and enable:
+   - Email
+   - Google
+5. For Google OAuth, add your local and production redirect URLs in Supabase Auth settings.
+6. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` locally and in Vercel.
+
+Important: `supabase/schema.sql` resets the earlier demo tables and creates the account-based RLS schema. Run it only when you are ready to migrate to the multi-user model.
 
 ## Gemini AI Setup
 
-SplitSafe AI uses Gemini only from the server route at `app/api/ai-summary/route.ts`.
+SplitSafe AI uses Gemini only from `app/api/ai-summary/route.ts`.
 
 1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
 2. Create a Gemini API key.
-3. Add it to `.env.local` only:
+3. Add it to `.env.local` and Vercel as:
 
 ```bash
 GEMINI_API_KEY=your_key_here
@@ -82,22 +92,9 @@ GEMINI_API_KEY=your_key_here
 
 Security rules:
 
-- Never rename this to `NEXT_PUBLIC_GEMINI_API_KEY`.
 - Never expose Gemini keys to browser code.
 - Never commit `.env.local`.
-- Keep `.env.example` as placeholders only.
-- If Gemini fails or the key is missing, SplitSafe automatically uses the local rule-based fallback.
-
-SplitSafe AI is instructed to stay inside group budgeting, expense splitting, spending insights, and Base Sepolia testnet settlement status. It must not suggest mainnet payments, real-money transfers, trading, or investment advice.
-
-## Supabase
-
-1. Create a Supabase project.
-2. Open the SQL editor.
-3. Run `supabase/schema.sql`.
-4. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `.env.local`.
-
-For a hackathon demo, the schema is intentionally simple. Add row-level security policies before production use.
+- If Gemini fails or the key is missing, SplitSafe uses a rule-based fallback.
 
 ## Run Locally
 
@@ -109,22 +106,19 @@ Open `http://localhost:3000`.
 
 ## Base Sepolia
 
+SplitSafe only uses testnet/demo settlement.
+
 1. Add Base Sepolia to your wallet.
 2. Fund the wallet with testnet ETH from a faucet.
-3. Add a WalletConnect project ID in `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`.
-4. Optionally set `NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL`.
+3. Connect wallet in the app.
+4. If the payment receiver has a wallet saved on their profile, SplitSafe can send a tiny Base Sepolia ETH test transaction.
+5. If no receiver wallet is available, SplitSafe records a mock settlement.
 
-SplitSafe only uses testnet/demo transactions. It never asks for mainnet funds.
-
-Demo currency is displayed as USDC for budgeting, but this MVP does not move real USDC by default. Settlement sends a tiny Base Sepolia ETH transaction only when a wallet is connected, or records a mock settlement in demo mode.
+No mainnet funds are required or requested.
 
 ## Deploy to Vercel
 
 The GitHub repository is connected to Vercel. Pushes to `main` automatically trigger a production deployment.
-
-1. Push changes to GitHub.
-2. Vercel builds the Next.js app automatically.
-3. Production is served at [https://splitsafe.vercel.app](https://splitsafe.vercel.app).
 
 Required Vercel environment variables:
 
@@ -134,37 +128,30 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 GEMINI_API_KEY=
 ```
 
-Optional Vercel environment variables:
+Production URL: [https://splitsafe.vercel.app](https://splitsafe.vercel.app)
 
-```bash
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
-NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=
-```
-
-The app uses standard Next.js routes and is Vercel-ready without custom server configuration.
-
-Do not add `.env.local`, wallet private keys, seed phrases, Supabase service role keys, or Gemini keys to GitHub. Wallet addresses stored by the app are public identifiers only.
+Do not add `.env.local`, wallet private keys, seed phrases, Supabase service role keys, or Gemini keys to GitHub.
 
 ## Optional Render Deployment
 
-`render.yaml` is included as an optional Render blueprint. Add the same environment variables in Render's dashboard before deploying. Vercel remains the primary production host for this project.
+`render.yaml` is included as an optional Render blueprint. Vercel remains the primary production host for this project.
 
-## Hackathon Demo Flow
+## Demo Flow
 
 1. Open the landing page.
 2. Click **Launch App**.
-3. Connect a wallet, or continue in demo mode.
-4. Click **Load Demo Data**.
-5. Open **ABAC Dinner Group**.
-6. Review the 100 USDC budget and 30 USDC dinner expense.
-7. Ask the assistant: `Who still needs to pay?`
-8. Click **Settle** next to an unpaid balance.
-9. Confirm the Base Sepolia transaction, or use mock settlement without a wallet.
-10. See the transaction hash and settled status.
+3. Sign up or log in with Google/email.
+4. Create **Thailand Trip** with a 100 USD budget.
+5. Invite another email as member/admin.
+6. Accept the invite from that account.
+7. Add an expense and split it across active members.
+8. Ask the assistant: `Who still needs to pay?`
+9. Click **Settle** next to an unpaid balance.
+10. Show paid status and transaction/mock hash.
 
 ## Notes
 
-- Demo currency is USDC for budgeting, but settlement sends a tiny amount of Base Sepolia ETH for testnet proof.
+- This is still a hackathon MVP, not a production finance app.
+- RLS is enabled and should be treated as the security boundary.
 - The Solidity contract is included as a simple registry/event layer and is not required for the app to run.
-- This is an MVP, not a production finance app.
 - The public GitHub repo is `https://github.com/ThantSinNyan/splitsafe`.

@@ -1,117 +1,129 @@
-export type GroupCategory =
-  | "food"
-  | "travel"
-  | "family"
-  | "event"
-  | "dorm"
-  | "other";
-
-export type MemberRole = "owner" | "member";
-export type SplitStatus = "unpaid" | "settled";
+export type WorkspaceRole = "owner" | "admin" | "member";
+export type MemberStatus = "active" | "pending";
+export type InviteStatus = "pending" | "accepted" | "expired";
+export type SplitStatus = "unpaid" | "paid";
 export type AiRole = "user" | "assistant";
 
 export type Profile = {
   id: string;
-  wallet_address: string;
-  display_name: string | null;
+  name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+  wallet_address: string | null;
   created_at: string;
 };
 
-export type SplitSafeGroup = {
+export type Workspace = {
   id: string;
+  owner_id: string;
   name: string;
   description: string | null;
-  budget_amount: number;
   currency: string;
-  category: GroupCategory;
-  created_by_wallet: string | null;
+  total_budget: number;
   created_at: string;
 };
 
-export type GroupMember = {
+export type WorkspaceMember = {
   id: string;
-  group_id: string;
-  name: string;
-  wallet_address: string;
-  role: MemberRole;
+  workspace_id: string;
+  user_id: string;
+  role: WorkspaceRole;
+  status: MemberStatus;
   created_at: string;
+  profile: Profile | null;
+};
+
+export type Invite = {
+  id: string;
+  workspace_id: string;
+  invited_email: string;
+  invited_by: string;
+  invite_token: string;
+  role: Exclude<WorkspaceRole, "owner">;
+  status: InviteStatus;
+  created_at: string;
+  accepted_at: string | null;
+  expires_at: string | null;
 };
 
 export type Expense = {
   id: string;
-  group_id: string;
+  workspace_id: string;
+  paid_by: string;
   title: string;
   amount: number;
   category: string;
-  paid_by_member_id: string;
-  split_member_ids: string[];
   notes: string | null;
   created_at: string;
+  paid_by_profile: Profile | null;
 };
 
 export type ExpenseSplit = {
   id: string;
   expense_id: string;
-  group_id: string;
-  from_member_id: string;
-  to_member_id: string;
-  amount: number;
+  workspace_id: string;
+  user_id: string;
+  amount_owed: number;
   status: SplitStatus;
   settlement_tx_hash: string | null;
-  created_at: string;
   settled_at: string | null;
+  created_at: string;
+  profile: Profile | null;
 };
 
 export type Settlement = {
   id: string;
-  group_id: string;
+  workspace_id: string;
   expense_split_id: string;
+  sender_user_id: string;
+  receiver_user_id: string;
   sender_wallet: string;
   receiver_wallet: string;
   amount: number;
   tx_hash: string;
   network: string;
-  status: string;
+  status: "confirmed" | "mocked";
   created_at: string;
 };
 
 export type AiMessage = {
   id: string;
-  group_id: string;
+  workspace_id: string;
+  user_id: string | null;
   role: AiRole;
   content: string;
   created_at: string;
 };
 
-export type GroupWorkspaceData = {
-  group: SplitSafeGroup;
-  members: GroupMember[];
+export type WorkspaceData = {
+  workspace: Workspace;
+  currentMember: WorkspaceMember | null;
+  members: WorkspaceMember[];
+  invites: Invite[];
   expenses: Expense[];
   splits: ExpenseSplit[];
   settlements: Settlement[];
   aiMessages: AiMessage[];
 };
 
-export type CreateGroupInput = {
+export type CreateWorkspaceInput = {
   name: string;
   description: string;
-  budget_amount: number;
+  total_budget: number;
   currency: string;
-  category: GroupCategory;
 };
 
-export type CreateMemberInput = {
-  name: string;
-  wallet_address: string;
-  role: MemberRole;
+export type CreateInviteInput = {
+  invited_email: string;
+  role: Exclude<WorkspaceRole, "owner">;
 };
 
 export type CreateExpenseInput = {
   title: string;
   amount: number;
   category: string;
-  paid_by_member_id: string;
-  split_member_ids: string[];
+  paid_by: string;
+  split_user_ids: string[];
   notes: string;
 };
 

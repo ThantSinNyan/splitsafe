@@ -1,16 +1,16 @@
 import type {
   Expense,
   ExpenseSplit,
-  GroupMember,
   Settlement,
-  SplitSafeGroup,
+  Workspace,
+  WorkspaceMember,
 } from "@/types/splitsafe";
-import { formatMoney, memberName, shortAddress } from "@/lib/utils";
+import { formatMoney, memberName, profileLabel, shortAddress } from "@/lib/utils";
 
 type SummaryPayload = {
   question?: string;
-  group?: SplitSafeGroup;
-  members?: GroupMember[];
+  workspace?: Workspace;
+  members?: WorkspaceMember[];
   expenses?: Expense[];
   splits?: ExpenseSplit[];
   settlements?: Settlement[];
@@ -82,11 +82,11 @@ async function tryGeminiSummary(payload: SummaryPayload, context: SummaryContext
         parts: [
           {
             text: [
-              "You are SplitSafe AI, a concise group budgeting and settlement assistant.",
-              "You only help with SplitSafe group budgets, expense splitting, spending insights, balances, and settlement status.",
+              "You are SplitSafe AI, a concise multi-user workspace budgeting assistant.",
+              "You only help with SplitSafe private workspaces, expense splitting, spending insights, balances, invite status, and settlement status.",
               "Product rules: SplitSafe is testnet only. Base Sepolia is used for demo settlement. Demo USDC is not real USDC unless explicitly configured.",
               "Never tell users to use real money, never suggest mainnet transactions, and never give investment or trading advice.",
-              "Treat wallet addresses as public identifiers. Do not ask for private keys, seed phrases, or service role keys.",
+              "Treat wallet addresses as public identifiers. Do not ask for private keys, seed phrases, service role keys, or API keys.",
               "If the question is unclear, briefly explain what SplitSafe AI can help with.",
               "Keep answers short, clear, natural, and demo-friendly. Prefer 2-4 sentences.",
             ].join(" "),
@@ -128,8 +128,8 @@ function extractGeminiText(data: GeminiResponse) {
 
 function buildGeminiPrompt(question: string | undefined, context: SummaryContext) {
   return [
-    `User question: ${question || "Summarize this group budget."}`,
-    "Use this SplitSafe group context as the source of truth:",
+    `User question: ${question || "Summarize this workspace budget."}`,
+    "Use this SplitSafe workspace context as the source of truth:",
     JSON.stringify(context, null, 2),
     "Answer as SplitSafe AI. If there are unpaid balances, name who owes whom and the amount. If settlements are completed, mention transaction hashes only when relevant.",
   ].join("\n\n");
@@ -137,68 +137,72 @@ function buildGeminiPrompt(question: string | undefined, context: SummaryContext
 
 function buildSummaryContext(payload: SummaryPayload) {
   const {
-    group,
+    workspace,
     members = [],
     expenses = [],
     splits = [],
     settlements = [],
   } = payload;
-  const currency = group?.currency ?? "USDC";
-  const budget = group?.budget_amount ?? 0;
+  const currency = workspace?.currency ?? "USD";
+  const budget = workspace?.total_budget ?? 0;
   const totalSpent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
   const remaining = budget - totalSpent;
-  const budgetUsagePercentage = budget > 0 ? Math.round((totalSpent / budget) * 100) : 0;
-  const categoryTotals = expenses.reduce<Record<string, number>>((totals, expense) => {
-    totals[expense.category] = (totals[expense.category] ?? 0) + expense.amount;
-    return totals;
-  }, {});
+  const budgetUsagePercentage =
+    budget > 0 ? Math.round((totalSpent / budget) * 100) : 0;
+  const categoryTotals = expenses.reduce<Record<string, number>>(
+    (totals, expense) => {
+      totals[expense.category] = (totals[expense.category] ?? 0) + expense.amount;
+      return totals;
+    },
+    {},
+  );
   const paidTotals = expenses.reduce<Record<string, number>>((totals, expense) => {
-    totals[expense.paid_by_member_id] =
-      (totals[expense.paid_by_member_id] ?? 0) + expense.amount;
+    totals[expense.paid_by] = (totals[expense.paid_by] ?? 0) + expense.amount;
     return totals;
   }, {});
+  const expensesById = new Map(expenses.map((expense) => [expense.id, expense]));
 
   return {
     product: {
       name: "SplitSafe",
       rules: [
+        "Supabase Auth accounts",
+        "workspace data isolated by RLS",
         "testnet only",
         "Base Sepolia demo settlement",
-        "demo USDC is not real USDC unless explicitly configured",
         "no mainnet funds",
         "no investment or trading advice",
       ],
     },
-    group: {
-      id: group?.id ?? null,
-      name: group?.name ?? "Unknown group",
-      description: group?.description ?? null,
+    workspace: {
+      id: workspace?.id ?? null,
+      name: workspace?.name ?? "Unknown workspace",
+      description: workspace?.description ?? null,
       totalBudget: budget,
       currency,
-      category: group?.category ?? "other",
       totalSpent,
       remainingBudget: remaining,
       budgetUsagePercentage,
       settlementStatus:
         splits.length === 0
           ? "no balances"
-          : splits.every((split) => split.status === "settled")
-            ? "all settled"
+          : splits.every((split) => split.status === "paid")
+            ? "all paid"
             : "unpaid balances remain",
     },
     members: members.map((member) => ({
-      id: member.id,
-      name: member.name,
-      walletAddress: member.wallet_address,
+      userId: member.user_id,
+      name: profileLabel(member.profile),
+      email: member.profile?.email ?? null,
       role: member.role,
+      status: member.status,
     })),
     expenses: expenses.map((expense) => ({
       id: expense.id,
       title: expense.title,
       amount: expense.amount,
       category: expense.category,
-      paidBy: memberName(expense.paid_by_member_id, members),
-      splitBetween: expense.split_member_ids.map((id) => memberName(id, members)),
+      paidBy: memberName(expense.paid_by, members),
       notes: expense.notes,
     })),
     categoryTotals: Object.entries(categoryTotals)
@@ -206,37 +210,43 @@ function buildSummaryContext(payload: SummaryPayload) {
       .map(([category, amount]) => ({ category, amount })),
     paidTotals: Object.entries(paidTotals)
       .sort((a, b) => b[1] - a[1])
-      .map(([memberId, amount]) => ({
-        member: memberName(memberId, members),
+      .map(([userId, amount]) => ({
+        member: memberName(userId, members),
         amount,
       })),
     unpaidBalances: splits
       .filter((split) => split.status === "unpaid")
-      .map((split) => ({
-        from: memberName(split.from_member_id, members),
-        to: memberName(split.to_member_id, members),
-        amount: split.amount,
-        currency,
-        expenseId: split.expense_id,
-        status: split.status,
-      })),
+      .map((split) => {
+        const expense = expensesById.get(split.expense_id);
+
+        return {
+          from: memberName(split.user_id, members),
+          to: expense ? memberName(expense.paid_by, members) : "payer",
+          amount: split.amount_owed,
+          currency,
+          expenseId: split.expense_id,
+          status: split.status,
+        };
+      }),
     settledBalances: splits
-      .filter((split) => split.status === "settled")
-      .map((split) => ({
-        from: memberName(split.from_member_id, members),
-        to: memberName(split.to_member_id, members),
-        amount: split.amount,
-        currency,
-        expenseId: split.expense_id,
-        status: split.status,
-        transactionHash: split.settlement_tx_hash,
-        explorerLabel: split.settlement_tx_hash
-          ? shortAddress(split.settlement_tx_hash)
-          : null,
-      })),
+      .filter((split) => split.status === "paid")
+      .map((split) => {
+        const expense = expensesById.get(split.expense_id);
+
+        return {
+          from: memberName(split.user_id, members),
+          to: expense ? memberName(expense.paid_by, members) : "payer",
+          amount: split.amount_owed,
+          currency,
+          expenseId: split.expense_id,
+          status: split.status,
+          transactionHash: split.settlement_tx_hash,
+          explorerLabel: split.settlement_tx_hash
+            ? shortAddress(split.settlement_tx_hash)
+            : null,
+        };
+      }),
     settlements: settlements.map((settlement) => ({
-      senderWallet: settlement.sender_wallet,
-      receiverWallet: settlement.receiver_wallet,
       amount: settlement.amount,
       currency,
       network: settlement.network,
@@ -247,12 +257,15 @@ function buildSummaryContext(payload: SummaryPayload) {
   };
 }
 
-function buildRuleBasedSummary(payload: SummaryPayload, context = buildSummaryContext(payload)) {
+function buildRuleBasedSummary(
+  payload: SummaryPayload,
+  context = buildSummaryContext(payload),
+) {
   const question = (payload.question ?? "").toLowerCase();
-  const currency = context.group.currency;
-  const budget = context.group.totalBudget;
-  const totalSpent = context.group.totalSpent;
-  const remaining = context.group.remainingBudget;
+  const currency = context.workspace.currency;
+  const budget = context.workspace.totalBudget;
+  const totalSpent = context.workspace.totalSpent;
+  const remaining = context.workspace.remainingBudget;
   const topCategory = context.categoryTotals[0];
   const topPayer = context.paidTotals[0];
   const unpaid = context.unpaidBalances;
@@ -274,10 +287,14 @@ function buildRuleBasedSummary(payload: SummaryPayload, context = buildSummaryCo
       : `You still have ${formatMoney(remaining, currency)} remaining.`;
 
   if (isGreeting(question)) {
-    return `Hi, I am SplitSafe AI. I can help explain ${context.group.name}'s budget, unpaid balances, category spending, and Base Sepolia settlement status.`;
+    return `Hi, I am SplitSafe AI. I can help explain ${context.workspace.name}'s budget, unpaid balances, category spending, and Base Sepolia settlement status.`;
   }
 
-  if (question.includes("who still") || question.includes("needs to pay") || question.includes("owe")) {
+  if (
+    question.includes("who still") ||
+    question.includes("needs to pay") ||
+    question.includes("owe")
+  ) {
     return unpaidText;
   }
 
@@ -288,7 +305,11 @@ function buildRuleBasedSummary(payload: SummaryPayload, context = buildSummaryCo
     )} budget. ${statusText}`;
   }
 
-  if (question.includes("where") || question.includes("most") || question.includes("category")) {
+  if (
+    question.includes("where") ||
+    question.includes("most") ||
+    question.includes("category")
+  ) {
     return topCategory
       ? `The highest spending category is ${topCategory.category} at ${formatMoney(
           topCategory.amount,
@@ -297,7 +318,11 @@ function buildRuleBasedSummary(payload: SummaryPayload, context = buildSummaryCo
       : "No expenses have been recorded yet, so there is no top spending category.";
   }
 
-  if (question.includes("reduce") || question.includes("cut") || question.includes("save")) {
+  if (
+    question.includes("reduce") ||
+    question.includes("cut") ||
+    question.includes("save")
+  ) {
     return topCategory
       ? `Reduce ${topCategory.category} first because it is the largest category at ${formatMoney(
           topCategory.amount,
@@ -307,10 +332,10 @@ function buildRuleBasedSummary(payload: SummaryPayload, context = buildSummaryCo
   }
 
   if (question.includes("summarize") || question.includes("summary")) {
-    return `${context.group.name} has spent ${formatMoney(
+    return `${context.workspace.name} has spent ${formatMoney(
       totalSpent,
       currency,
-    )} out of ${formatMoney(budget, currency)} (${context.group.budgetUsagePercentage}%). ${unpaidText} ${statusText}`;
+    )} out of ${formatMoney(budget, currency)} (${context.workspace.budgetUsagePercentage}%). ${unpaidText} ${statusText}`;
   }
 
   if (question.includes("who paid")) {
@@ -326,12 +351,17 @@ function buildRuleBasedSummary(payload: SummaryPayload, context = buildSummaryCo
     return statusText;
   }
 
-  if (question.includes("settlement") || question.includes("completed") || question.includes("settled")) {
+  if (
+    question.includes("settlement") ||
+    question.includes("completed") ||
+    question.includes("settled") ||
+    question.includes("paid")
+  ) {
     return settled.length > 0
       ? settled
           .map(
             (split) =>
-              `${split.from} to ${split.to} is settled for ${formatMoney(
+              `${split.from} to ${split.to} is paid for ${formatMoney(
                 split.amount,
                 currency,
               )}${split.explorerLabel ? ` (${split.explorerLabel})` : ""}`,
@@ -342,13 +372,13 @@ function buildRuleBasedSummary(payload: SummaryPayload, context = buildSummaryCo
 
   if (question.includes("next") || question.includes("do next")) {
     if (unpaid.length > 0) {
-      return `Next, settle the unpaid balances on Base Sepolia testnet: ${unpaidText}`;
+      return `Next, settle the unpaid balances on Base Sepolia testnet or mark them paid: ${unpaidText}`;
     }
 
-    return "Next, add any missing expenses or ask for a spending summary. All current balances look settled.";
+    return "Next, invite members or add any missing expenses. All current balances look paid.";
   }
 
-  return "I can help with group budget summaries, unpaid balances, top spending categories, remaining budget, who paid the most, and Base Sepolia settlement status.";
+  return "I can help with workspace budget summaries, unpaid balances, top spending categories, remaining budget, who paid the most, and Base Sepolia settlement status.";
 }
 
 function isGreeting(question: string) {

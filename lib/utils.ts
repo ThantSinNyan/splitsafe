@@ -1,4 +1,4 @@
-import type { GroupMember } from "@/types/splitsafe";
+import type { WorkspaceMember } from "@/types/splitsafe";
 
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -33,6 +33,14 @@ export function shortAddress(address?: string | null) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-export function memberName(memberId: string, members: GroupMember[]) {
-  return members.find((member) => member.id === memberId)?.name ?? "Unknown";
+export function profileLabel(profile?: {
+  name?: string | null;
+  email?: string | null;
+} | null) {
+  return profile?.name || profile?.email || "Unknown";
+}
+
+export function memberName(userId: string, members: WorkspaceMember[]) {
+  const member = members.find((item) => item.user_id === userId);
+  return profileLabel(member?.profile);
 }
