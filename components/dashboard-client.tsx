@@ -29,6 +29,7 @@ import {
 } from "@/components/ui-kit";
 import { WalletPanel } from "@/components/wallet-panel";
 import { baseSepolia } from "@/lib/wagmi";
+import { getSupabaseSetupStatus } from "@/lib/supabase";
 import {
   createGroup,
   getDashboardStats,
@@ -83,6 +84,7 @@ export function DashboardClient() {
   const [demoLoading, setDemoLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const storageMode = getStorageMode();
+  const supabaseSetup = getSupabaseSetupStatus();
 
   const networkLabel = useMemo(() => {
     if (!isConnected) return "Demo mode";
@@ -248,8 +250,8 @@ export function DashboardClient() {
 
         {storageMode === "demo" ? (
           <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 p-5 text-sm leading-6 text-amber-900 shadow-sm">
-            Supabase keys are not configured, so SplitSafe is using localStorage.
-            The demo flow stays fully usable on this machine.
+            {supabaseSetup.message} The demo flow stays fully usable on this
+            machine.
           </div>
         ) : null}
 
