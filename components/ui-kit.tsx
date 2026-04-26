@@ -7,12 +7,14 @@ import { cn } from "@/lib/utils";
 
 export function BrandMark({
   compact = false,
+  mobileCompact = false,
   size = "md",
 }: {
   compact?: boolean;
+  mobileCompact?: boolean;
   size?: LogoSize;
 }) {
-  return <Logo compact={compact} size={size} />;
+  return <Logo compact={compact} mobileCompact={mobileCompact} size={size} />;
 }
 
 export function Badge({

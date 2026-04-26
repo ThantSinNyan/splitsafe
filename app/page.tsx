@@ -61,7 +61,7 @@ export default function Home() {
         <div className="relative mx-auto flex w-full max-w-7xl flex-col px-5 py-6 sm:px-8">
           <nav className="flex min-w-0 items-center justify-between gap-3">
             <Link href="/" aria-label="SplitSafe home" className="min-w-0">
-              <BrandMark size="lg" />
+              <BrandMark mobileCompact size="lg" />
             </Link>
             <div className="hidden items-center gap-6 text-sm font-semibold text-slate-500 md:flex">
               <a href="#features" className="hover:text-slate-950">

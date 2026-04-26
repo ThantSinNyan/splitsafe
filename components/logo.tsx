@@ -39,13 +39,24 @@ const logoSizes = {
 export function Logo({
   size = "md",
   compact = false,
+  mobileCompact = false,
   className,
 }: {
   size?: LogoSize;
   compact?: boolean;
+  mobileCompact?: boolean;
   className?: string;
 }) {
   const config = logoSizes[size];
+
+  if (mobileCompact && !compact) {
+    return (
+      <div className={cn("flex min-w-0 items-center", className)}>
+        <Logo compact size={size} className="sm:hidden" />
+        <Logo size={size} className="hidden sm:block" />
+      </div>
+    );
+  }
 
   if (compact) {
     return (

@@ -43,7 +43,7 @@ export function AppShell({
       <header className="sticky top-0 z-40 border-b border-white/70 bg-white/78 backdrop-blur-2xl">
         <div className="mx-auto flex h-20 w-full max-w-[1500px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <Link href="/" aria-label="SplitSafe home">
-            <BrandMark />
+            <BrandMark mobileCompact />
           </Link>
           <nav className="hidden items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm lg:flex">
             {navItems.map((item) => {
@@ -111,6 +111,9 @@ export function AppShell({
       <div className="mx-auto grid w-full max-w-[1500px] gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[248px_1fr] lg:px-8">
         <aside className="hidden lg:block">
           <div className="sticky top-28 rounded-[30px] border border-white/80 bg-white/75 p-4 shadow-[0_24px_80px_rgba(15,23,42,0.07)] backdrop-blur-xl">
+            <div className="mb-5 px-2">
+              <BrandMark size="sm" />
+            </div>
             <p className="px-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
               Workspace
             </p>

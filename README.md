@@ -50,7 +50,8 @@ SplitSafe gives each group a private workspace:
 
 - Full wordmark logo: `public/splitsafe-logo-full.png`
 - Icon-only logo: `public/splitsafe-logo.png`
-- Favicon/app icons use the icon-only mark.
+- Large brand areas use the full wordmark logo.
+- Favicon, app icons, mobile navigation, and square upload fields use the icon-only mark.
 
 ## Setup
 
