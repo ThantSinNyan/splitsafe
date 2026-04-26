@@ -10,7 +10,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
-import { AvatarToken, BrandMark } from "@/components/ui-kit";
+import { AvatarToken, Badge, BrandMark } from "@/components/ui-kit";
 import { WalletMiniControl } from "@/components/wallet-panel";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +36,7 @@ export function AppShell({
   eyebrow?: string;
 }) {
   const pathname = usePathname();
-  const { profile, signOut, user } = useAuth();
+  const { isDemoUser, profile, signOut, user } = useAuth();
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.10),transparent_34%),linear-gradient(180deg,#ffffff_0%,#f8fafc_42%,#eefdfa_100%)] text-slate-950">
@@ -72,11 +72,18 @@ export function AppShell({
                   className="size-8 rounded-xl text-xs"
                 />
                 <div className="max-w-36">
-                  <p className="truncate text-sm font-semibold text-slate-950">
-                    {profile?.name ?? "SplitSafe user"}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-semibold text-slate-950">
+                      {profile?.name ?? "SplitSafe user"}
+                    </p>
+                    {isDemoUser ? (
+                      <Badge tone="teal" className="px-2 py-0.5 text-[10px]">
+                        Demo
+                      </Badge>
+                    ) : null}
+                  </div>
                   <p className="truncate text-xs text-slate-500">
-                    {profile?.email ?? "Signed in"}
+                    {isDemoUser ? "Temporary account" : profile?.email ?? "Signed in"}
                   </p>
                 </div>
                 <button

@@ -16,6 +16,7 @@ type AuthContextValue = {
   user: User | null;
   session: Session | null;
   profile: Profile | null;
+  isDemoUser: boolean;
   loading: boolean;
   supabaseReady: boolean;
   setupMessage: string | null;
@@ -27,7 +28,9 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 function profileFromUser(user: User): Profile {
   const metadata = user.user_metadata ?? {};
-  const fallbackName = user.email?.split("@")[0] ?? "SplitSafe user";
+  const fallbackName = user.is_anonymous
+    ? "Demo tester"
+    : user.email?.split("@")[0] ?? "SplitSafe user";
 
   return {
     id: user.id,
@@ -130,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       session,
       profile,
+      isDemoUser: Boolean(user?.is_anonymous),
       loading,
       supabaseReady: setupStatus.configured,
       setupMessage: setupStatus.message,

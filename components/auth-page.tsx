@@ -9,6 +9,7 @@ import {
   LockKeyhole,
   Mail,
   ShieldCheck,
+  UserRoundCheck,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import {
@@ -35,6 +36,7 @@ function AuthPageContent() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,6 +111,35 @@ function AuthPageContent() {
     }
   }
 
+  async function handleDemoLogin() {
+    if (!supabase) return;
+    setDemoLoading(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const { error: authError } = await supabase.auth.signInAnonymously({
+        options: {
+          data: {
+            name: "Demo tester",
+            full_name: "Demo tester",
+          },
+        },
+      });
+
+      if (authError) throw authError;
+      router.replace(nextPath);
+    } catch (caught) {
+      const message =
+        caught instanceof Error ? caught.message : "Demo sign-in failed";
+      setError(
+        `${message}. If this is disabled, enable Anonymous sign-ins in Supabase Auth providers.`,
+      );
+    } finally {
+      setDemoLoading(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.12),transparent_34%),linear-gradient(180deg,#ffffff_0%,#f8fafc_44%,#effdfa_100%)] px-4 py-8 text-slate-950">
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center">
@@ -166,7 +197,7 @@ function AuthPageContent() {
             <button
               type="button"
               onClick={() => void handleGoogleLogin()}
-              disabled={!supabaseReady || googleLoading}
+              disabled={!supabaseReady || googleLoading || demoLoading}
               className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:-translate-y-0.5 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {googleLoading ? (
@@ -176,6 +207,23 @@ function AuthPageContent() {
               )}
               Continue with Google
             </button>
+
+            <button
+              type="button"
+              onClick={() => void handleDemoLogin()}
+              disabled={!supabaseReady || googleLoading || demoLoading}
+              className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-teal-500 to-cyan-500 px-5 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(20,184,166,0.22)] hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {demoLoading ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <UserRoundCheck className="size-4" aria-hidden="true" />
+              )}
+              Try demo mode
+            </button>
+            <p className="mt-2 text-center text-xs leading-5 text-slate-500">
+              Creates a temporary isolated tester account. No shared demo data.
+            </p>
 
             <div className="my-6 flex items-center gap-3">
               <div className="h-px flex-1 bg-slate-200" />

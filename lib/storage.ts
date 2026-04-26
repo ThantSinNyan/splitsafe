@@ -192,6 +192,9 @@ async function getCurrentUser() {
 export async function ensureProfile(user: User) {
   const supabase = requireSupabaseClient();
   const fallbackName = user.user_metadata?.full_name ?? user.user_metadata?.name;
+  const defaultName = user.is_anonymous
+    ? "Demo tester"
+    : user.email?.split("@")[0] ?? "SplitSafe user";
 
   const { data, error } = await supabase
     .from("profiles")
@@ -200,7 +203,7 @@ export async function ensureProfile(user: User) {
       name:
         typeof fallbackName === "string"
           ? fallbackName
-          : user.email?.split("@")[0] ?? "SplitSafe user",
+          : defaultName,
       email: user.email?.toLowerCase() ?? null,
       avatar_url:
         typeof user.user_metadata?.avatar_url === "string"
