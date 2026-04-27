@@ -85,7 +85,7 @@ GEMINI_API_KEY=
 4. Go to **Authentication > Providers** and enable:
    - Email
    - Google
-   - Anonymous sign-ins
+   - Anonymous sign-ins, optional but recommended for hosted demo accounts
 5. For Google OAuth, add your local and production redirect URLs in Supabase Auth settings.
 6. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` locally and in Vercel.
 
@@ -153,7 +153,7 @@ Do not add `.env.local`, wallet private keys, seed phrases, Supabase service rol
 
 1. Open the landing page.
 2. Click **Launch App**.
-3. Sign up or log in with Google/email, or click **Try demo mode** for a temporary isolated tester account.
+3. Sign up or log in with Google/email, or click **Try demo mode**. If Supabase anonymous auth is disabled, SplitSafe opens a private in-browser demo instead.
 4. Create **Thailand Trip** with a 100 USD budget.
 5. Invite another email as member/admin.
 6. Accept the invite from that account.

@@ -12,6 +12,7 @@ import { useAccount, useChainId } from "wagmi";
 import { useEffect } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Badge } from "@/components/ui-kit";
+import { localDemoUserId } from "@/lib/local-demo";
 import { getSupabaseClient } from "@/lib/supabase";
 import { baseSepolia } from "@/lib/wagmi";
 import { cn, shortAddress } from "@/lib/utils";
@@ -98,6 +99,7 @@ export function WalletPanel({
 
   useEffect(() => {
     if (!user || !address || profile?.wallet_address === address) return;
+    if (user.id === localDemoUserId) return;
 
     const supabase = getSupabaseClient();
     if (!supabase) return;

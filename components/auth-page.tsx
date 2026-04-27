@@ -28,7 +28,8 @@ function AuthPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get("next") || "/dashboard";
-  const { user, loading, supabaseReady, setupMessage } = useAuth();
+  const { startDemoSession, user, loading, supabaseReady, setupMessage } =
+    useAuth();
   const supabase = getSupabaseClient();
   const [mode, setMode] = useState<AuthMode>("login");
   const [name, setName] = useState("");
@@ -112,29 +113,32 @@ function AuthPageContent() {
   }
 
   async function handleDemoLogin() {
-    if (!supabase) return;
     setDemoLoading(true);
     setError(null);
     setMessage(null);
 
     try {
-      const { error: authError } = await supabase.auth.signInAnonymously({
-        options: {
-          data: {
-            name: "Demo tester",
-            full_name: "Demo tester",
+      if (supabase) {
+        const { error: authError } = await supabase.auth.signInAnonymously({
+          options: {
+            data: {
+              name: "Demo tester",
+              full_name: "Demo tester",
+            },
           },
-        },
-      });
+        });
 
-      if (authError) throw authError;
+        if (!authError) {
+          router.replace(nextPath);
+          return;
+        }
+      }
+
+      startDemoSession();
       router.replace(nextPath);
-    } catch (caught) {
-      const message =
-        caught instanceof Error ? caught.message : "Demo sign-in failed";
-      setError(
-        `${message}. If this is disabled, enable Anonymous sign-ins in Supabase Auth providers.`,
-      );
+    } catch {
+      startDemoSession();
+      router.replace(nextPath);
     } finally {
       setDemoLoading(false);
     }
@@ -211,7 +215,7 @@ function AuthPageContent() {
             <button
               type="button"
               onClick={() => void handleDemoLogin()}
-              disabled={!supabaseReady || googleLoading || demoLoading}
+              disabled={googleLoading || demoLoading}
               className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-teal-500 to-cyan-500 px-5 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(20,184,166,0.22)] hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {demoLoading ? (
@@ -222,7 +226,8 @@ function AuthPageContent() {
               Try demo mode
             </button>
             <p className="mt-2 text-center text-xs leading-5 text-slate-500">
-              Creates a temporary isolated tester account. No shared demo data.
+              Uses Supabase anonymous auth when available, otherwise opens a
+              private in-browser demo.
             </p>
 
             <div className="my-6 flex items-center gap-3">

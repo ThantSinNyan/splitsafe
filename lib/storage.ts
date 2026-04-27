@@ -1,4 +1,18 @@
 import type { User } from "@supabase/supabase-js";
+import {
+  acceptLocalInvite,
+  addLocalExpense,
+  createLocalInvite,
+  createLocalSampleWorkspace,
+  createLocalWorkspace,
+  getLocalDashboardStats,
+  getLocalDemoUser,
+  getLocalWorkspace,
+  isLocalDemoMode,
+  listLocalWorkspaces,
+  recordLocalSettlement,
+  saveLocalAiMessage,
+} from "@/lib/local-demo";
 import { requireSupabaseClient } from "@/lib/supabase";
 import { makeId, nowIso, roundMoney } from "@/lib/utils";
 import type {
@@ -175,6 +189,8 @@ function throwIfError(error: { code?: string; message?: string } | null) {
 }
 
 async function getCurrentUser() {
+  if (isLocalDemoMode()) return getLocalDemoUser();
+
   const supabase = requireSupabaseClient();
   const {
     data: { user },
@@ -190,6 +206,8 @@ async function getCurrentUser() {
 }
 
 export async function ensureProfile(user: User) {
+  if (isLocalDemoMode()) return null;
+
   const supabase = requireSupabaseClient();
   const fallbackName = user.user_metadata?.full_name ?? user.user_metadata?.name;
   const defaultName = user.is_anonymous
@@ -218,6 +236,8 @@ export async function ensureProfile(user: User) {
 }
 
 export async function listWorkspaces() {
+  if (isLocalDemoMode()) return listLocalWorkspaces();
+
   await getCurrentUser();
   const supabase = requireSupabaseClient();
   const { data, error } = await supabase
@@ -230,6 +250,8 @@ export async function listWorkspaces() {
 }
 
 export async function getDashboardStats() {
+  if (isLocalDemoMode()) return getLocalDashboardStats();
+
   await getCurrentUser();
   const supabase = requireSupabaseClient();
   const [workspaces, expenses, splits] = await Promise.all([
@@ -258,6 +280,8 @@ export async function getDashboardStats() {
 }
 
 export async function createWorkspace(input: CreateWorkspaceInput) {
+  if (isLocalDemoMode()) return createLocalWorkspace(input);
+
   const user = await getCurrentUser();
   await ensureProfile(user);
 
@@ -288,6 +312,8 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
 }
 
 export async function createSampleWorkspace() {
+  if (isLocalDemoMode()) return createLocalSampleWorkspace();
+
   const workspace = await createWorkspace({
     name: "Thailand Trip",
     description: "Private sample workspace for food, transport, and rooms.",
@@ -299,6 +325,8 @@ export async function createSampleWorkspace() {
 }
 
 export async function getWorkspace(workspaceId: string): Promise<WorkspaceData | null> {
+  if (isLocalDemoMode()) return getLocalWorkspace(workspaceId);
+
   const user = await getCurrentUser();
   const supabase = requireSupabaseClient();
 
@@ -371,6 +399,8 @@ export async function createInvite(
   workspaceId: string,
   input: CreateInviteInput,
 ) {
+  if (isLocalDemoMode()) return createLocalInvite(workspaceId, input);
+
   const user = await getCurrentUser();
   const supabase = requireSupabaseClient();
   const inviteToken = makeId().replace(/-/g, "");
@@ -393,6 +423,8 @@ export async function createInvite(
 }
 
 export async function acceptInvite(inviteToken: string) {
+  if (isLocalDemoMode()) return acceptLocalInvite(inviteToken);
+
   await getCurrentUser();
   const supabase = requireSupabaseClient();
   const { data, error } = await supabase.rpc("accept_invite", {
@@ -407,6 +439,8 @@ export async function addExpense(
   workspaceId: string,
   input: CreateExpenseInput,
 ) {
+  if (isLocalDemoMode()) return addLocalExpense(workspaceId, input);
+
   const supabase = requireSupabaseClient();
   const splitUserIds = input.split_user_ids;
   const share = roundMoney(input.amount / splitUserIds.length);
@@ -446,6 +480,8 @@ export async function addExpense(
 }
 
 export async function recordSettlement(input: SettlementInput) {
+  if (isLocalDemoMode()) return recordLocalSettlement(input);
+
   const user = await getCurrentUser();
   const supabase = requireSupabaseClient();
   const settledAt = nowIso();
@@ -502,6 +538,8 @@ export async function saveAiMessage(
   role: AiRole,
   content: string,
 ) {
+  if (isLocalDemoMode()) return saveLocalAiMessage(workspaceId, role, content);
+
   const supabase = requireSupabaseClient();
   const {
     data: { user },

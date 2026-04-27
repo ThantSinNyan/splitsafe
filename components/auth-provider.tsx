@@ -9,6 +9,13 @@ import {
   useMemo,
   useState,
 } from "react";
+import {
+  getLocalDemoProfile,
+  getLocalDemoUser,
+  isLocalDemoMode,
+  startLocalDemoMode,
+  stopLocalDemoMode,
+} from "@/lib/local-demo";
 import { getSupabaseClient, getSupabaseSetupStatus } from "@/lib/supabase";
 import type { Profile } from "@/types/splitsafe";
 
@@ -21,6 +28,7 @@ type AuthContextValue = {
   supabaseReady: boolean;
   setupMessage: string | null;
   refreshProfile: () => Promise<void>;
+  startDemoSession: () => void;
   signOut: () => Promise<void>;
 };
 
@@ -55,6 +63,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(setupStatus.configured);
+
+  const activateLocalDemo = useCallback(() => {
+    startLocalDemoMode();
+    setSession(null);
+    setUser(getLocalDemoUser());
+    setProfile(getLocalDemoProfile());
+    setLoading(false);
+  }, []);
 
   const loadProfile = useCallback(
     async (nextUser: User | null) => {
@@ -99,7 +115,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   useEffect(() => {
+    if (isLocalDemoMode()) {
+      queueMicrotask(activateLocalDemo);
+      return;
+    }
+
     if (!supabase) {
+      queueMicrotask(() => setLoading(false));
       return;
     }
 
@@ -126,27 +148,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       subscription.subscription.unsubscribe();
     };
-  }, [loadProfile, supabase]);
+  }, [activateLocalDemo, loadProfile, supabase]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       session,
       profile,
-      isDemoUser: Boolean(user?.is_anonymous),
+      isDemoUser: Boolean(user?.is_anonymous) || isLocalDemoMode(),
       loading,
       supabaseReady: setupStatus.configured,
       setupMessage: setupStatus.message,
       refreshProfile: async () => loadProfile(user),
+      startDemoSession: activateLocalDemo,
       signOut: async () => {
-        if (!supabase) return;
-        await supabase.auth.signOut();
+        stopLocalDemoMode();
+        if (supabase) await supabase.auth.signOut();
         setSession(null);
         setUser(null);
         setProfile(null);
       },
     }),
-    [loadProfile, loading, profile, session, setupStatus, supabase, user],
+    [
+      activateLocalDemo,
+      loadProfile,
+      loading,
+      profile,
+      session,
+      setupStatus,
+      supabase,
+      user,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
