@@ -46,7 +46,7 @@ const features = [
 const useCases = ["Friends", "Trips", "Roommates", "Family", "Small teams"];
 
 const steps = [
-  "Create a private workspace",
+  "Create a private group",
   "Invite members by email",
   "Split expenses automatically",
   "Settle on Base Sepolia",
@@ -94,7 +94,7 @@ export default function Home() {
               </h1>
               <p className="mt-6 max-w-full text-base leading-8 text-slate-600 sm:max-w-xl sm:text-lg">
                 SplitSafe gives friends, students, families, and small teams a
-                polished workspace to budget, split expenses, connect wallets, and
+                polished group to budget, split expenses, connect wallets, and
                 settle on Base Sepolia without touching mainnet funds.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:gap-4">
@@ -161,7 +161,7 @@ export default function Home() {
               </h2>
               <p className="mt-5 text-base leading-7 text-slate-300">
                 The MVP is built around a single judge-friendly path: sign in,
-                create a workspace, invite a member, ask AI, and settle a balance.
+                create a group, invite a member, ask AI, and settle a balance.
               </p>
               <Link href="/dashboard" className="mt-8 inline-flex">
                 <span className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-white px-5 text-sm font-semibold text-slate-950 hover:-translate-y-0.5">
@@ -245,7 +245,7 @@ function ProductPreview() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-600">
-              Private workspace
+              Private group
             </p>
             <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">
               Thailand Trip

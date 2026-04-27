@@ -11,6 +11,7 @@ import {
   isLocalDemoMode,
   listLocalWorkspaces,
   recordLocalSettlement,
+  resetLocalDemoData,
   saveLocalAiMessage,
 } from "@/lib/local-demo";
 import { requireSupabaseClient } from "@/lib/supabase";
@@ -199,7 +200,7 @@ async function getCurrentUser() {
   throwIfError(error);
 
   if (!user) {
-    throw new Error("Please sign in to use SplitSafe workspaces.");
+    throw new Error("Please sign in to use SplitSafe groups.");
   }
 
   return user;
@@ -316,12 +317,20 @@ export async function createSampleWorkspace() {
 
   const workspace = await createWorkspace({
     name: "Thailand Trip",
-    description: "Private sample workspace for food, transport, and rooms.",
+    description: "Private sample group for food, transport, and rooms.",
     currency: "USD",
     total_budget: 100,
   });
 
   return workspace;
+}
+
+export async function resetDemoData() {
+  if (!isLocalDemoMode()) {
+    throw new Error("Demo reset is only available in demo mode.");
+  }
+
+  return resetLocalDemoData();
 }
 
 export async function getWorkspace(workspaceId: string): Promise<WorkspaceData | null> {

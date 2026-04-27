@@ -112,31 +112,12 @@ function AuthPageContent() {
     }
   }
 
-  async function handleDemoLogin() {
+  function handleDemoLogin() {
     setDemoLoading(true);
     setError(null);
     setMessage(null);
 
     try {
-      if (supabase) {
-        const { error: authError } = await supabase.auth.signInAnonymously({
-          options: {
-            data: {
-              name: "Demo tester",
-              full_name: "Demo tester",
-            },
-          },
-        });
-
-        if (!authError) {
-          router.replace(nextPath);
-          return;
-        }
-      }
-
-      startDemoSession();
-      router.replace(nextPath);
-    } catch {
       startDemoSession();
       router.replace(nextPath);
     } finally {
@@ -154,13 +135,13 @@ function AuthPageContent() {
             </Link>
             <div className="mt-14 inline-flex items-center gap-2 rounded-full border border-teal-200 bg-white px-4 py-2 text-sm font-semibold text-teal-700 shadow-sm">
               <ShieldCheck className="size-4" aria-hidden="true" />
-              Real accounts, private workspaces
+              Real accounts, private groups
             </div>
             <h1 className="mt-6 text-4xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
               Secure group budgets for people who actually share costs.
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
-              Sign in to create private workspaces, invite members by email,
+              Sign in to create private groups, invite members by email,
               split expenses, and keep every group isolated with Supabase RLS.
             </p>
             <div className="mt-8 grid max-w-2xl gap-3 sm:grid-cols-3">
@@ -187,8 +168,8 @@ function AuthPageContent() {
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-500">
                 {mode === "login"
-                  ? "Access your workspaces and pending invites."
-                  : "Create an account before accepting workspace invites."}
+                  ? "Access your groups and pending invites."
+                  : "Create an account before accepting group invites."}
               </p>
             </div>
 
@@ -226,8 +207,8 @@ function AuthPageContent() {
               Try demo mode
             </button>
             <p className="mt-2 text-center text-xs leading-5 text-slate-500">
-              Uses Supabase anonymous auth when available, otherwise opens a
-              private in-browser demo.
+              Loads an isolated local demo account with sample groups, balances,
+              messages, and fake testnet payment references.
             </p>
 
             <div className="my-6 flex items-center gap-3">

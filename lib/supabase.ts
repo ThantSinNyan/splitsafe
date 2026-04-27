@@ -10,7 +10,7 @@ export function getSupabaseSetupStatus() {
     return {
       configured: false,
       message:
-        "Supabase URL or public anon key is missing. Account workspaces require Supabase Auth.",
+        "Supabase URL or public anon key is missing. Account groups require Supabase Auth.",
     };
   }
 

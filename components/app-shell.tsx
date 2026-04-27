@@ -115,7 +115,7 @@ export function AppShell({
               <BrandMark size="sm" />
             </div>
             <p className="px-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Workspace
+              Group
             </p>
             <div className="mt-4 space-y-1">
               {navItems.map((item) => {
@@ -141,10 +141,10 @@ export function AppShell({
                 <Sparkles className="size-5" aria-hidden="true" />
               </div>
               <p className="mt-4 text-sm font-semibold text-slate-950">
-                {eyebrow ?? "Account workspace mode"}
+                {eyebrow ?? "Account group mode"}
               </p>
               <p className="mt-2 text-xs leading-5 text-slate-500">
-                Authenticated workspaces, RLS-backed data, AI summaries, and
+                Authenticated groups, RLS-backed data, AI summaries, and
                 testnet settlement keep the flow secure.
               </p>
             </div>

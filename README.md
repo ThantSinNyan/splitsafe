@@ -13,13 +13,14 @@ Live demo: [https://splitsafe.vercel.app](https://splitsafe.vercel.app)
 SplitSafe is now a real multi-user app:
 
 - Supabase Auth accounts with Google and email/password login
-- Optional anonymous demo login for testers
+- Rich local demo account for testers who do not want to sign up
 - Session restore on refresh
-- Private workspaces scoped by membership
+- Private groups scoped by membership
 - Email invite links for members and admins
 - Supabase Row Level Security on all app tables
-- Workspace expenses, equal splits, balances, settlement history, and AI messages
+- Group expenses, equal splits, balances, settlement history, and AI messages
 - Gemini server-side AI with local fallback
+- Smart Slip Scan receipt/slip extraction through a server-only Gemini Vision route
 
 ## Problem
 
@@ -27,13 +28,14 @@ Group spending is messy. People track expenses in chats, spreadsheets, and notes
 
 ## Solution
 
-SplitSafe gives each group a private workspace:
+SplitSafe gives each group a private budget room:
 
 - Create a budget such as "Thailand Trip" with 100 USD
 - Invite members by email
 - Add expenses and calculate equal splits
 - See unpaid balances clearly
 - Ask SplitSafe AI for summaries and suggestions
+- Upload a receipt or bank slip to pre-fill an expense for review
 - Mock-settle or settle with Base Sepolia testnet wallets
 
 ## Tech Stack
@@ -85,7 +87,7 @@ GEMINI_API_KEY=
 4. Go to **Authentication > Providers** and enable:
    - Email
    - Google
-   - Anonymous sign-ins, optional but recommended for hosted demo accounts
+   - Anonymous sign-ins are not required for the built-in local demo account
 5. For Google OAuth, add your local and production redirect URLs in Supabase Auth settings.
 6. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` locally and in Vercel.
 
@@ -93,7 +95,10 @@ Important: `supabase/schema.sql` resets the earlier demo tables and creates the 
 
 ## Gemini AI Setup
 
-SplitSafe AI uses Gemini only from `app/api/ai-summary/route.ts`.
+SplitSafe AI uses Gemini only from server routes:
+
+- `app/api/ai-summary/route.ts`
+- `app/api/scan-receipt/route.ts`
 
 1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
 2. Create a Gemini API key.
@@ -107,7 +112,8 @@ Security rules:
 
 - Never expose Gemini keys to browser code.
 - Never commit `.env.local`.
-- If Gemini fails or the key is missing, SplitSafe uses a rule-based fallback.
+- If Gemini summary fails or the key is missing, SplitSafe uses a rule-based fallback.
+- If Smart Slip Scan has no Gemini key, the app offers a clearly labeled demo extraction result for testing.
 
 ## Run Locally
 
@@ -153,14 +159,16 @@ Do not add `.env.local`, wallet private keys, seed phrases, Supabase service rol
 
 1. Open the landing page.
 2. Click **Launch App**.
-3. Sign up or log in with Google/email, or click **Try demo mode**. If Supabase anonymous auth is disabled, SplitSafe opens a private in-browser demo instead.
-4. Create **Thailand Trip** with a 100 USD budget.
-5. Invite another email as member/admin.
-6. Accept the invite from that account.
-7. Add an expense and split it across active members.
+3. Sign up or log in with Google/email, or click **Try demo mode**.
+4. Demo mode opens as **Alex Demo** with three sample groups: Thailand Trip, ABAC Dinner Group, and Hackathon Team.
+5. Open a group and review members, expenses, balances, messages, and fake Base Sepolia payment references.
+6. Use **Smart Slip Scan** inside Add Expense to upload a receipt/slip, review the extracted result, and fill the form.
+7. Add or edit an expense and split it across active members.
 8. Ask the assistant: `Who still needs to pay?`
 9. Click **Settle** next to an unpaid balance.
 10. Show paid status and transaction/mock hash.
+
+Demo data is isolated in local browser storage and can be rebuilt with **Reset demo data**. It uses fake names, fake emails, fake wallet labels, fake contract references, and fake transaction hashes.
 
 ## Notes
 

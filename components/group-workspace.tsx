@@ -12,6 +12,7 @@ import {
   Copy,
   Database,
   ExternalLink,
+  ScanLine,
   Landmark,
   Loader2,
   MailPlus,
@@ -46,6 +47,7 @@ import {
   fieldClassName,
   textareaClassName,
 } from "@/components/ui-kit";
+import { SmartSlipScanModal } from "@/components/SmartSlipScanModal";
 import { WalletPanel } from "@/components/wallet-panel";
 import {
   acceptInvite,
@@ -73,6 +75,7 @@ import type {
   WorkspaceData,
   WorkspaceMember,
 } from "@/types/splitsafe";
+import type { SlipScanResult } from "@/types/slip-scan";
 
 const expenseCategories = [
   "food",
@@ -109,6 +112,32 @@ const initialExpenseForm: CreateExpenseInput = {
   split_user_ids: [],
   notes: "",
 };
+
+function mapScanCategory(category: string) {
+  const directCategory = expenseCategories.includes(category) ? category : null;
+
+  if (directCategory) return directCategory;
+  if (category === "hotel") return "travel";
+  if (category === "shopping" || category === "utilities") return "supplies";
+  if (category === "entertainment") return "event";
+
+  return "other";
+}
+
+function buildScanNotes(result: SlipScanResult) {
+  return [
+    "Scanned by AI.",
+    result.merchant ? `Merchant: ${result.merchant}` : null,
+    result.date ? `Date: ${result.date}` : null,
+    result.currency ? `Currency: ${result.currency}` : null,
+    `Payment method: ${result.paymentMethod}`,
+    result.transactionReference ? `Reference: ${result.transactionReference}` : null,
+    `Confidence: ${Math.round(result.confidence * 100)}%`,
+    result.notes ? `Notes: ${result.notes}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 function baseSepoliaTxUrl(hash: string) {
   return `https://sepolia.basescan.org/tx/${hash}`;
@@ -152,6 +181,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   const [aiQuestion, setAiQuestion] = useState("Who still needs to pay?");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiStatus>("idle");
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -181,7 +212,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       }
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Could not load workspace",
+        caught instanceof Error ? caught.message : "Could not load group",
       );
     } finally {
       setLoading(false);
@@ -297,6 +328,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         paid_by: user?.id ?? "",
         split_user_ids: members.map((member) => member.user_id),
       });
+      setScanNotice(null);
       await refreshWorkspace();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not add expense");
@@ -316,6 +348,17 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           : [...current.split_user_ids, userId],
       };
     });
+  }
+
+  function handleUseScanResult(result: SlipScanResult) {
+    setExpenseForm((current) => ({
+      ...current,
+      title: result.title || result.merchant || "Scanned expense",
+      amount: result.amount ?? current.amount,
+      category: mapScanCategory(result.category),
+      notes: buildScanNotes(result),
+    }));
+    setScanNotice("Expense auto-filled from slip. Please review before saving.");
   }
 
   async function handleSettle(split: ExpenseSplit) {
@@ -418,7 +461,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         indicator?: string;
       };
       const summary =
-        result.summary ?? "I could not summarize this workspace yet.";
+        result.summary ?? "I could not summarize this group yet.";
       setAiStatus(
         result.mode === "gemini"
           ? "gemini"
@@ -454,7 +497,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       <main className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-500 shadow-sm">
           <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden="true" />
-          Loading workspace
+          Loading group
         </div>
       </main>
     );
@@ -466,8 +509,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         <SectionCard className="mx-auto max-w-3xl text-center">
           <EmptyState
             icon={Database}
-            title="Workspace not found"
-            body="This workspace does not exist or your account is not a member."
+            title="Group not found"
+            body="This group does not exist or your account is not a member."
             action={
               <Link
                 href="/dashboard"
@@ -491,7 +534,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       : 0;
 
   return (
-    <AppShell eyebrow={`${room.name} workspace`}>
+    <AppShell eyebrow={`${room.name} group`}>
       <div className="space-y-8">
         <header className="relative overflow-hidden rounded-[34px] border border-white/80 bg-white/82 p-7 shadow-[0_30px_90px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-8">
           <div className="absolute -right-24 -top-28 size-72 rounded-full bg-teal-300/20 blur-3xl" />
@@ -507,7 +550,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               </Link>
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 <Badge tone="teal">{room.currency}</Badge>
-                <Badge tone="green">Private workspace</Badge>
+                <Badge tone="green">Private group</Badge>
                 <Badge tone={metrics.remaining < 0 ? "rose" : "green"}>
                   {metrics.remaining < 0 ? "Over budget" : "On budget"}
                 </Badge>
@@ -543,7 +586,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         <WalletPanel />
 
         <div className="rounded-[24px] border border-sky-200 bg-sky-50/90 p-5 text-sm leading-6 text-sky-900 shadow-sm">
-          Supabase RLS protects this workspace. Only active members can read
+          Supabase RLS protects this group. Only active members can read
           expenses, splits, AI messages, invites, and settlement history.
         </div>
 
@@ -557,7 +600,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           <StatCard
             label="Total budget"
             value={formatMoney(room.total_budget, room.currency)}
-            detail="Workspace budget cap"
+            detail="Group budget cap"
             icon={CircleDollarSign}
             tone="blue"
           />
@@ -644,6 +687,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               expenseForm={expenseForm}
               expenseSaving={expenseSaving}
               sharePreview={sharePreview}
+              scanNotice={scanNotice}
+              onOpenScan={() => setScanOpen(true)}
               setExpenseForm={setExpenseForm}
               toggleSplitUser={toggleSplitUser}
               onSubmit={handleAddExpense}
@@ -679,6 +724,11 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
             ) : null}
           </div>
         </section>
+        <SmartSlipScanModal
+          open={scanOpen}
+          onClose={() => setScanOpen(false)}
+          onUseResult={handleUseScanResult}
+        />
       </div>
     </AppShell>
   );
@@ -825,6 +875,8 @@ function ExpenseFormPanel({
   expenseForm,
   expenseSaving,
   sharePreview,
+  scanNotice,
+  onOpenScan,
   setExpenseForm,
   toggleSplitUser,
   onSubmit,
@@ -836,6 +888,8 @@ function ExpenseFormPanel({
   expenseForm: CreateExpenseInput;
   expenseSaving: boolean;
   sharePreview: number;
+  scanNotice: string | null;
+  onOpenScan: () => void;
   setExpenseForm: React.Dispatch<React.SetStateAction<CreateExpenseInput>>;
   toggleSplitUser: (userId: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
@@ -853,6 +907,32 @@ function ExpenseFormPanel({
       />
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
+        <div className="rounded-[24px] border border-teal-200 bg-gradient-to-br from-teal-50 via-white to-cyan-50 p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">
+                AI Assist
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Upload a receipt or bank slip to auto-fill this expense.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenScan}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-semibold text-slate-950 shadow-sm ring-1 ring-teal-200 hover:-translate-y-0.5 hover:bg-teal-50"
+            >
+              <ScanLine className="size-4 text-teal-700" aria-hidden="true" />
+              Smart Slip Scan
+            </button>
+          </div>
+          {scanNotice ? (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800">
+              {scanNotice}
+            </div>
+          ) : null}
+        </div>
+
         <FieldLabel label="Title">
           <input
             value={expenseForm.title}
@@ -1045,7 +1125,7 @@ function AssistantPanel({
           {aiMessages.length === 0 ? (
             <EmptyState
               icon={Bot}
-              title="Ask the workspace budget"
+              title="Ask the group budget"
               body="Try one of the prompt chips above or ask your own spending question."
             />
           ) : (
@@ -1226,7 +1306,7 @@ function ExpensesPanel({
           <EmptyState
             icon={ReceiptText}
             title="No expenses"
-            body="Add the first receipt to start tracking workspace spending."
+            body="Add the first receipt to start tracking group spending."
           />
         ) : (
           expenses.map((expense) => (
@@ -1325,13 +1405,13 @@ export function InviteAcceptance({ token }: { token: string }) {
     queueMicrotask(() => {
       if (cancelled) return;
       setStatus("accepting");
-      setMessage("Accepting workspace invite");
+      setMessage("Accepting group invite");
 
       acceptInvite(token)
         .then((workspaceId) => {
           if (cancelled) return;
           setStatus("done");
-          setMessage("Invite accepted. Opening workspace.");
+          setMessage("Invite accepted. Opening group.");
           router.replace(`/workspaces/${workspaceId}`);
         })
         .catch((caught) => {
@@ -1360,7 +1440,7 @@ export function InviteAcceptance({ token }: { token: string }) {
           )}
         </div>
         <h1 className="mt-5 text-2xl font-semibold tracking-tight text-slate-950">
-          Workspace invite
+          Group invite
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-500">{message}</p>
         {status === "error" ? (

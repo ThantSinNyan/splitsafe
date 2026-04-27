@@ -35,6 +35,7 @@ import {
   createWorkspace,
   getDashboardStats,
   listWorkspaces,
+  resetDemoData,
 } from "@/lib/storage";
 import { formatMoney, profileLabel } from "@/lib/utils";
 import type { CreateWorkspaceInput, Workspace } from "@/types/splitsafe";
@@ -60,7 +61,7 @@ const emptyStats: DashboardStats = {
 
 export function DashboardClient() {
   const router = useRouter();
-  const { loading: authLoading, profile, setupMessage, supabaseReady, user } =
+  const { isDemoUser, loading: authLoading, profile, setupMessage, supabaseReady, user } =
     useAuth();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
@@ -93,7 +94,7 @@ export function DashboardClient() {
       setStats(nextStats);
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Could not load workspaces",
+        caught instanceof Error ? caught.message : "Could not load groups",
       );
     } finally {
       setLoading(false);
@@ -112,7 +113,7 @@ export function DashboardClient() {
     setError(null);
 
     try {
-      if (!form.name.trim()) throw new Error("Workspace name is required");
+      if (!form.name.trim()) throw new Error("Group name is required");
       if (!Number.isFinite(form.total_budget) || form.total_budget <= 0) {
         throw new Error("Budget amount must be greater than zero");
       }
@@ -123,7 +124,7 @@ export function DashboardClient() {
       router.push(`/workspaces/${workspace.id}`);
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Could not create workspace",
+        caught instanceof Error ? caught.message : "Could not create group",
       );
     } finally {
       setSaving(false);
@@ -142,8 +143,22 @@ export function DashboardClient() {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Could not create sample workspace",
+          : "Could not create sample group",
       );
+    } finally {
+      setSampleLoading(false);
+    }
+  }
+
+  async function handleResetDemoData() {
+    setSampleLoading(true);
+    setError(null);
+
+    try {
+      await resetDemoData();
+      await refreshDashboard();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not reset demo data");
     } finally {
       setSampleLoading(false);
     }
@@ -169,41 +184,63 @@ export function DashboardClient() {
           <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
             <div className="max-w-3xl">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={supabaseReady ? "green" : "amber"}>
-                  {supabaseReady ? "Supabase Auth active" : "Setup required"}
+                <Badge tone={supabaseReady || isDemoUser ? "green" : "amber"}>
+                  {isDemoUser
+                    ? "Local demo active"
+                    : supabaseReady
+                      ? "Supabase Auth active"
+                      : "Setup required"}
                 </Badge>
                 <Badge tone="teal">
                   <ShieldCheck className="size-3.5" aria-hidden="true" />
                   RLS protected
                 </Badge>
+                {isDemoUser ? <Badge tone="amber">Demo Mode</Badge> : null}
               </div>
               <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                My workspaces
+                My groups
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-                Welcome, {displayName}. Create private budget workspaces, invite
+                Welcome, {displayName}. Create private budget groups, invite
                 members by email, and keep every group isolated to its members.
               </p>
             </div>
-            <PrimaryButton
-              type="button"
-              onClick={() => void handleCreateSample()}
-              disabled={!supabaseReady || sampleLoading}
-              className="min-w-56 bg-gradient-to-r from-slate-950 to-teal-900"
-            >
-              {sampleLoading ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Sparkles className="size-4" aria-hidden="true" />
-              )}
-              Create sample workspace
-            </PrimaryButton>
+            <div className="flex flex-col gap-3 sm:flex-row xl:flex-col">
+              {isDemoUser ? (
+                <button
+                  type="button"
+                  onClick={() => void handleResetDemoData()}
+                  disabled={sampleLoading}
+                  className="inline-flex h-12 min-w-52 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 text-sm font-semibold text-amber-900 shadow-sm hover:-translate-y-0.5"
+                >
+                  {sampleLoading ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Sparkles className="size-4" aria-hidden="true" />
+                  )}
+                  Reset demo data
+                </button>
+              ) : null}
+              <PrimaryButton
+                type="button"
+                onClick={() => void handleCreateSample()}
+                disabled={(!supabaseReady && !isDemoUser) || sampleLoading}
+                className="min-w-56 bg-gradient-to-r from-slate-950 to-teal-900"
+              >
+                {sampleLoading ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Sparkles className="size-4" aria-hidden="true" />
+                )}
+                Create sample group
+              </PrimaryButton>
+            </div>
           </div>
         </header>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard
-            label="Workspaces"
+            label="Groups"
             value={workspaces.length.toString()}
             detail="Private groups you belong to"
             icon={WalletCards}
@@ -212,14 +249,14 @@ export function DashboardClient() {
           <StatCard
             label="Total budget"
             value={formatMoney(stats.totalBudget, "USD")}
-            detail="Across your workspaces"
+            detail="Across your groups"
             icon={CircleDollarSign}
             tone="blue"
           />
           <StatCard
             label="Total spent"
             value={formatMoney(stats.totalSpent, "USD")}
-            detail="Visible to your memberships"
+            detail="Visible to your group memberships"
             icon={ReceiptText}
             tone="green"
           />
@@ -234,7 +271,7 @@ export function DashboardClient() {
 
         <WalletPanel />
 
-        {!supabaseReady ? (
+        {!supabaseReady && !isDemoUser ? (
           <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 p-5 text-sm leading-6 text-amber-900 shadow-sm">
             {setupMessage}
           </div>
@@ -249,13 +286,13 @@ export function DashboardClient() {
         <section className="grid gap-6 xl:grid-cols-[430px_1fr]">
           <SectionCard id="create" elevated>
             <SectionHeader
-              eyebrow="New workspace"
-              title="Create a workspace"
-              description="Set the budget shell first. Members and expenses are managed inside the workspace."
+              eyebrow="New group"
+              title="Create a group"
+              description="Set a budget first. Members and expenses are managed inside the group."
             />
 
             <form onSubmit={handleCreateWorkspace} className="mt-6 space-y-5">
-              <FieldLabel label="Workspace name">
+              <FieldLabel label="Group name">
                 <input
                   value={form.name}
                   onChange={(event) =>
@@ -319,7 +356,7 @@ export function DashboardClient() {
 
               <PrimaryButton
                 type="submit"
-                disabled={!supabaseReady || saving}
+                disabled={(!supabaseReady && !isDemoUser) || saving}
                 className="w-full"
               >
                 {saving ? (
@@ -327,7 +364,7 @@ export function DashboardClient() {
                 ) : (
                   <Plus className="size-4" aria-hidden="true" />
                 )}
-                Create workspace
+                Create group
               </PrimaryButton>
             </form>
           </SectionCard>
@@ -335,13 +372,13 @@ export function DashboardClient() {
           <SectionCard id="groups" elevated>
             <SectionHeader
               eyebrow="Portfolio"
-              title="My Workspaces"
-              description="Only workspaces where you are owner or member appear here."
+              title="My Groups"
+              description="Only groups where you are owner or member appear here."
               action={
                 <button
                   type="button"
                   onClick={() => void handleCreateSample()}
-                  disabled={!supabaseReady || sampleLoading}
+                  disabled={(!supabaseReady && !isDemoUser) || sampleLoading}
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-4 text-sm font-semibold text-teal-800 hover:-translate-y-0.5 hover:bg-teal-100"
                 >
                   {sampleLoading ? (
@@ -358,18 +395,18 @@ export function DashboardClient() {
               {loading ? (
                 <div className="flex min-h-72 items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-slate-500">
                   <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
-                  Loading workspaces
+                  Loading groups
                 </div>
               ) : workspaces.length === 0 ? (
                 <EmptyState
                   icon={Database}
-                  title="No workspaces yet"
+                  title="No groups yet"
                   body="Create Thailand Trip or invite another account to prove private multi-user access."
                   action={
                     <button
                       type="button"
                       onClick={() => void handleCreateSample()}
-                      disabled={!supabaseReady || sampleLoading}
+                      disabled={(!supabaseReady && !isDemoUser) || sampleLoading}
                       className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white"
                     >
                       <Sparkles className="size-4" aria-hidden="true" />

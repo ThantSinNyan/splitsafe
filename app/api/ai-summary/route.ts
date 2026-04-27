@@ -82,8 +82,8 @@ async function tryGeminiSummary(payload: SummaryPayload, context: SummaryContext
         parts: [
           {
             text: [
-              "You are SplitSafe AI, a concise multi-user workspace budgeting assistant.",
-              "You only help with SplitSafe private workspaces, expense splitting, spending insights, balances, invite status, and settlement status.",
+              "You are SplitSafe AI, a concise multi-user group budgeting assistant.",
+              "You only help with SplitSafe private groups, expense splitting, spending insights, balances, invite status, and settlement status.",
               "Product rules: SplitSafe is testnet only. Base Sepolia is used for demo settlement. Demo USDC is not real USDC unless explicitly configured.",
               "Never tell users to use real money, never suggest mainnet transactions, and never give investment or trading advice.",
               "Treat wallet addresses as public identifiers. Do not ask for private keys, seed phrases, service role keys, or API keys.",
@@ -128,8 +128,8 @@ function extractGeminiText(data: GeminiResponse) {
 
 function buildGeminiPrompt(question: string | undefined, context: SummaryContext) {
   return [
-    `User question: ${question || "Summarize this workspace budget."}`,
-    "Use this SplitSafe workspace context as the source of truth:",
+    `User question: ${question || "Summarize this group budget."}`,
+    "Use this SplitSafe group context as the source of truth:",
     JSON.stringify(context, null, 2),
     "Answer as SplitSafe AI. If there are unpaid balances, name who owes whom and the amount. If settlements are completed, mention transaction hashes only when relevant.",
   ].join("\n\n");
@@ -167,7 +167,7 @@ function buildSummaryContext(payload: SummaryPayload) {
       name: "SplitSafe",
       rules: [
         "Supabase Auth accounts",
-        "workspace data isolated by RLS",
+        "group data isolated by RLS",
         "testnet only",
         "Base Sepolia demo settlement",
         "no mainnet funds",
@@ -176,7 +176,7 @@ function buildSummaryContext(payload: SummaryPayload) {
     },
     workspace: {
       id: workspace?.id ?? null,
-      name: workspace?.name ?? "Unknown workspace",
+      name: workspace?.name ?? "Unknown group",
       description: workspace?.description ?? null,
       totalBudget: budget,
       currency,
@@ -378,7 +378,7 @@ function buildRuleBasedSummary(
     return "Next, invite members or add any missing expenses. All current balances look paid.";
   }
 
-  return "I can help with workspace budget summaries, unpaid balances, top spending categories, remaining budget, who paid the most, and Base Sepolia settlement status.";
+  return "I can help with group budget summaries, unpaid balances, top spending categories, remaining budget, who paid the most, and Base Sepolia settlement status.";
 }
 
 function isGreeting(question: string) {

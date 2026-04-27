@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { createDemoSeedState, demoUserId } from "@/lib/demo-data";
 import { makeId, nowIso, roundMoney } from "@/lib/utils";
 import type {
   AiMessage,
@@ -20,9 +21,7 @@ import type {
 const localDemoSessionKey = "splitsafe.localDemo.session";
 const localDemoDataKey = "splitsafe.localDemo.data";
 
-export const localDemoUserId = "local-demo-user";
-const alexId = "local-demo-alex";
-const mayId = "local-demo-may";
+export const localDemoUserId = demoUserId;
 
 type LocalDemoState = {
   profiles: Profile[];
@@ -39,52 +38,13 @@ function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
-function demoProfile(): Profile {
-  return {
-    id: localDemoUserId,
-    name: "Demo tester",
-    email: "demo@splitsafe.local",
-    avatar_url: null,
-    wallet_address: null,
-    created_at: nowIso(),
-  };
-}
-
-function seedProfiles(): Profile[] {
-  const createdAt = nowIso();
-
-  return [
-    demoProfile(),
-    {
-      id: alexId,
-      name: "Alex",
-      email: "alex.demo@splitsafe.local",
-      avatar_url: null,
-      wallet_address: null,
-      created_at: createdAt,
-    },
-    {
-      id: mayId,
-      name: "May",
-      email: "may.demo@splitsafe.local",
-      avatar_url: null,
-      wallet_address: null,
-      created_at: createdAt,
-    },
-  ];
-}
-
 function emptyState(): LocalDemoState {
-  return {
-    profiles: seedProfiles(),
-    workspaces: [],
-    members: [],
-    invites: [],
-    expenses: [],
-    splits: [],
-    settlements: [],
-    aiMessages: [],
-  };
+  return createDemoSeedState();
+}
+
+function writeState(state: LocalDemoState) {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(localDemoDataKey, JSON.stringify(state));
 }
 
 function readState(): LocalDemoState {
@@ -110,10 +70,10 @@ function readState(): LocalDemoState {
       aiMessages: parsed.aiMessages ?? [],
     };
 
-    for (const profile of seedProfiles()) {
-      if (!state.profiles.some((item) => item.id === profile.id)) {
-        state.profiles.push(profile);
-      }
+    if (state.workspaces.length === 0) {
+      const seeded = emptyState();
+      writeState(seeded);
+      return seeded;
     }
 
     return state;
@@ -122,11 +82,6 @@ function readState(): LocalDemoState {
     writeState(state);
     return state;
   }
-}
-
-function writeState(state: LocalDemoState) {
-  if (!canUseStorage()) return;
-  window.localStorage.setItem(localDemoDataKey, JSON.stringify(state));
 }
 
 function profileById(state: LocalDemoState, userId: string) {
@@ -158,6 +113,12 @@ export function isLocalDemoMode() {
   return canUseStorage() && window.localStorage.getItem(localDemoSessionKey) === "active";
 }
 
+export function resetLocalDemoData() {
+  const state = emptyState();
+  writeState(state);
+  return state;
+}
+
 export function startLocalDemoMode() {
   if (!canUseStorage()) return;
   window.localStorage.setItem(localDemoSessionKey, "active");
@@ -170,7 +131,14 @@ export function stopLocalDemoMode() {
 }
 
 export function getLocalDemoProfile() {
-  return demoProfile();
+  return profileById(readState(), localDemoUserId) ?? {
+    id: localDemoUserId,
+    name: "Alex Demo",
+    email: "demo@splitsafe.app",
+    avatar_url: null,
+    wallet_address: null,
+    created_at: nowIso(),
+  };
 }
 
 export function getLocalDemoUser() {
@@ -181,12 +149,12 @@ export function getLocalDemoUser() {
       providers: ["local-demo"],
     },
     user_metadata: {
-      name: "Demo tester",
-      full_name: "Demo tester",
+      name: "Alex Demo",
+      full_name: "Alex Demo",
     },
     aud: "authenticated",
     created_at: nowIso(),
-    email: "demo@splitsafe.local",
+    email: "demo@splitsafe.app",
     is_anonymous: true,
   } as User;
 }
@@ -239,61 +207,14 @@ export function createLocalWorkspace(input: CreateWorkspaceInput) {
 
 export function createLocalSampleWorkspace() {
   const state = readState();
-  const createdAt = nowIso();
-  const workspace: Workspace = {
-    id: makeId(),
-    owner_id: localDemoUserId,
-    name: "Thailand Trip",
-    description: "Local demo workspace for food, transport, and rooms.",
-    currency: "USD",
-    total_budget: 100,
-    created_at: createdAt,
-  };
+  const existing =
+    state.workspaces.find((workspace) => workspace.name === "Thailand Trip") ??
+    state.workspaces[0];
 
-  const memberRows: WorkspaceMember[] = [localDemoUserId, alexId, mayId].map(
-    (userId, index) => ({
-      id: makeId(),
-      workspace_id: workspace.id,
-      user_id: userId,
-      role: index === 0 ? "owner" : "member",
-      status: "active",
-      created_at: createdAt,
-      profile: profileById(state, userId),
-    }),
-  );
+  if (existing) return existing;
 
-  const expense: Expense = {
-    id: makeId(),
-    workspace_id: workspace.id,
-    paid_by: localDemoUserId,
-    title: "Dinner",
-    amount: 30,
-    category: "food",
-    notes: "Demo dinner split across three members.",
-    created_at: createdAt,
-    paid_by_profile: profileById(state, localDemoUserId),
-  };
-
-  const splits: ExpenseSplit[] = [alexId, mayId].map((userId) => ({
-    id: makeId(),
-    expense_id: expense.id,
-    workspace_id: workspace.id,
-    user_id: userId,
-    amount_owed: 10,
-    status: "unpaid",
-    settlement_tx_hash: null,
-    settled_at: null,
-    created_at: createdAt,
-    profile: profileById(state, userId),
-  }));
-
-  state.workspaces.push(workspace);
-  state.members.push(...memberRows);
-  state.expenses.push(expense);
-  state.splits.push(...splits);
-  writeState(state);
-
-  return workspace;
+  const seeded = resetLocalDemoData();
+  return seeded.workspaces[0];
 }
 
 export function getLocalWorkspace(workspaceId: string): WorkspaceData | null {
@@ -425,7 +346,7 @@ export function recordLocalSettlement(input: SettlementInput) {
     receiver_wallet: input.receiverWallet,
     amount: input.amount,
     tx_hash: input.txHash,
-    network: "base-sepolia",
+    network: "Base Sepolia",
     status: input.status,
     created_at: settledAt,
   };
