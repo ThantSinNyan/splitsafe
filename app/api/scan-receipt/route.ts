@@ -12,8 +12,18 @@ type GeminiResponse = {
         text?: string;
       }>;
     };
+    finishReason?: string;
   }>;
 };
+
+class ScanReceiptError extends Error {
+  constructor(
+    message: string,
+    public readonly includeDemoData = false,
+  ) {
+    super(message);
+  }
+}
 
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -23,9 +33,10 @@ const extractionPrompt = `Analyze this image. It may be a receipt, restaurant bi
 
 Extract only expense-related information.
 
-Return valid JSON only.
+Return compact valid JSON only.
 Do not include markdown.
 Do not include explanations outside JSON.
+Keep notes under 120 characters.
 
 Return this exact structure:
 
@@ -90,9 +101,21 @@ export async function POST(request: Request) {
       data: result,
       mode: "gemini",
     });
-  } catch {
+  } catch (caught) {
+    const message =
+      caught instanceof ScanReceiptError
+        ? caught.message
+        : "Could not read this image. Please enter manually.";
+
     return Response.json(
-      { ok: false, error: "Could not read this image. Please enter manually." },
+      {
+        ok: false,
+        error: message,
+        demoData:
+          caught instanceof ScanReceiptError && caught.includeDemoData
+            ? demoSlipScanResult
+            : undefined,
+      },
       { status: 502 },
     );
   }
@@ -158,20 +181,52 @@ async function scanWithGemini(base64: string, mimeType: string) {
         },
       ],
       generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 512,
+        temperature: 0,
+        maxOutputTokens: 2048,
         responseMimeType: "application/json",
+        thinkingConfig: {
+          thinkingBudget: 0,
+        },
       },
     }),
   });
 
-  if (!response.ok) throw new Error("Gemini scan failed");
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    const quotaLimited =
+      response.status === 429 ||
+      errorText.toLowerCase().includes("resource_exhausted") ||
+      errorText.toLowerCase().includes("quota");
+
+    throw new ScanReceiptError(
+      quotaLimited
+        ? "Gemini quota is temporarily busy. Demo extraction result is shown."
+        : "Could not read this image. Please enter manually.",
+      quotaLimited,
+    );
+  }
 
   const data = (await response.json()) as GeminiResponse;
+  const finishReason = data.candidates?.[0]?.finishReason;
   const text = extractGeminiText(data);
-  if (!text) throw new Error("Gemini did not return text");
+  if (!text) {
+    throw new ScanReceiptError("Gemini did not return a receipt result.", true);
+  }
+  if (finishReason === "MAX_TOKENS") {
+    throw new ScanReceiptError(
+      "Gemini response was cut off. Demo extraction result is shown.",
+      true,
+    );
+  }
 
-  return normalizeScanResult(JSON.parse(cleanJsonText(text)) as Partial<SlipScanResult>);
+  try {
+    return normalizeScanResult(JSON.parse(cleanJsonText(text)) as Partial<SlipScanResult>);
+  } catch {
+    throw new ScanReceiptError(
+      "Gemini returned unreadable JSON. Demo extraction result is shown.",
+      true,
+    );
+  }
 }
 
 function extractGeminiText(data: GeminiResponse) {
@@ -199,7 +254,7 @@ function normalizeScanResult(value: Partial<SlipScanResult>): SlipScanResult {
     typeof rawAmount === "number"
       ? rawAmount
       : typeof rawAmount === "string"
-        ? Number(rawAmount.replace(/,/g, ""))
+        ? Number(rawAmount.replace(/,/g, "").replace(/[^0-9.-]/g, ""))
         : Number.NaN;
   const amount = Number.isFinite(numericAmount) ? numericAmount : null;
 
