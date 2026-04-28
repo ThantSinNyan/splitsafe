@@ -166,14 +166,19 @@ export function listLocalWorkspaces() {
 
 export function getLocalDashboardStats() {
   const state = readState();
+  const unpaidSplits = state.splits.filter((split) => split.status === "unpaid");
+  const expensesById = new Map(state.expenses.map((expense) => [expense.id, expense]));
 
   return {
-    totalBudget: state.workspaces.reduce(
-      (sum, workspace) => sum + workspace.total_budget,
-      0,
-    ),
     totalSpent: state.expenses.reduce((sum, expense) => sum + expense.amount, 0),
-    pendingSettlements: state.splits.filter((split) => split.status === "unpaid").length,
+    totalUnpaid: unpaidSplits.reduce((sum, split) => sum + split.amount_owed, 0),
+    pendingSettlements: unpaidSplits.length,
+    youOwe: unpaidSplits
+      .filter((split) => split.user_id === localDemoUserId)
+      .reduce((sum, split) => sum + split.amount_owed, 0),
+    owedToYou: unpaidSplits
+      .filter((split) => expensesById.get(split.expense_id)?.paid_by === localDemoUserId)
+      .reduce((sum, split) => sum + split.amount_owed, 0),
   };
 }
 

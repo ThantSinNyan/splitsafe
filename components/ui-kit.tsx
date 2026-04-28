@@ -116,12 +116,13 @@ export function StatCard({
   value: string;
   detail?: string;
   icon: LucideIcon;
-  tone?: "teal" | "green" | "amber" | "slate" | "blue";
+  tone?: "teal" | "green" | "amber" | "rose" | "slate" | "blue";
 }) {
   const tones = {
     teal: "from-teal-500/16 to-cyan-400/8 text-teal-700",
     green: "from-emerald-500/16 to-teal-400/8 text-emerald-700",
     amber: "from-amber-500/18 to-orange-400/8 text-amber-700",
+    rose: "from-rose-500/16 to-amber-400/8 text-rose-700",
     slate: "from-slate-500/12 to-slate-300/8 text-slate-700",
     blue: "from-sky-500/16 to-cyan-400/8 text-sky-700",
   };

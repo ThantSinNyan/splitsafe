@@ -32,8 +32,8 @@ const features = [
     icon: Scale,
   },
   {
-    title: "Onchain settlement",
-    description: "Settle balances with Base Sepolia testnet transactions and explorer links.",
+    title: "Checkout settlement",
+    description: "Settle balances with Base Sepolia demo checkout receipts and explorer links.",
     icon: Landmark,
   },
   {
@@ -115,7 +115,7 @@ export default function Home() {
               <div className="mt-10 grid max-w-full grid-cols-1 gap-3 sm:max-w-xl sm:grid-cols-3">
                 <HeroMetric label="Budget" value="100 USDC" />
                 <HeroMetric label="Spent" value="30 USDC" />
-                <HeroMetric label="Pending" value="2 splits" />
+                <HeroMetric label="Unpaid" value="2 balances" />
               </div>
             </div>
 
@@ -261,7 +261,7 @@ function ProductPreview() {
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <PreviewStat icon={CircleDollarSign} label="Budget" value="100" />
           <PreviewStat icon={ReceiptText} label="Spent" value="30" />
-          <PreviewStat icon={Landmark} label="Pending" value="20" />
+          <PreviewStat icon={Landmark} label="Unpaid" value="20" />
         </div>
 
         <div className="mt-5 rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">

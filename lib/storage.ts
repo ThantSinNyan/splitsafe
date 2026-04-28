@@ -253,30 +253,44 @@ export async function listWorkspaces() {
 export async function getDashboardStats() {
   if (isLocalDemoMode()) return getLocalDashboardStats();
 
-  await getCurrentUser();
+  const user = await getCurrentUser();
   const supabase = requireSupabaseClient();
-  const [workspaces, expenses, splits] = await Promise.all([
-    supabase.from("workspaces").select("total_budget"),
-    supabase.from("expenses").select("amount"),
-    supabase.from("expense_splits").select("status"),
+  const [expenses, splits] = await Promise.all([
+    supabase.from("expenses").select("id, amount, paid_by"),
+    supabase.from("expense_splits").select("status, amount_owed, user_id, expense_id"),
   ]);
 
-  throwIfError(workspaces.error);
   throwIfError(expenses.error);
   throwIfError(splits.error);
 
+  const expenseRows = expenses.data ?? [];
+  const splitRows = splits.data ?? [];
+  const expensesById = new Map(
+    expenseRows.map((row) => [asText(asRecord(row).id), asRecord(row)]),
+  );
+  const unpaidSplits = splitRows
+    .map(asRecord)
+    .filter((row) => asText(row.status, "unpaid") === "unpaid");
+
   return {
-    totalBudget: (workspaces.data ?? []).reduce(
-      (sum, row) => sum + asNumber(asRecord(row).total_budget),
-      0,
-    ),
-    totalSpent: (expenses.data ?? []).reduce(
+    totalSpent: expenseRows.reduce(
       (sum, row) => sum + asNumber(asRecord(row).amount),
       0,
     ),
-    pendingSettlements: (splits.data ?? []).filter(
-      (row) => asText(asRecord(row).status, "unpaid") === "unpaid",
-    ).length,
+    totalUnpaid: unpaidSplits.reduce(
+      (sum, row) => sum + asNumber(row.amount_owed),
+      0,
+    ),
+    pendingSettlements: unpaidSplits.length,
+    youOwe: unpaidSplits
+      .filter((row) => asText(row.user_id) === user.id)
+      .reduce((sum, row) => sum + asNumber(row.amount_owed), 0),
+    owedToYou: unpaidSplits
+      .filter((row) => {
+        const expense = expensesById.get(asText(row.expense_id));
+        return asText(expense?.paid_by) === user.id;
+      })
+      .reduce((sum, row) => sum + asNumber(row.amount_owed), 0),
   };
 }
 

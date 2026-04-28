@@ -98,6 +98,34 @@ const suggestedPrompts = [
 ];
 
 type AiStatus = "idle" | "gemini" | "fallback" | "unavailable";
+type GroupTab = "overview" | "expenses" | "settle" | "ai";
+
+const groupTabs: Array<{
+  id: GroupTab;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "overview",
+    label: "Overview",
+    description: "Budget, members, and AI summary",
+  },
+  {
+    id: "expenses",
+    label: "Expenses",
+    description: "Add, scan, and review the ledger",
+  },
+  {
+    id: "settle",
+    label: "Settle",
+    description: "Who owes who and checkout status",
+  },
+  {
+    id: "ai",
+    label: "AI Assistant",
+    description: "Ask about spending and next steps",
+  },
+];
 
 const initialInviteForm: CreateInviteInput = {
   invited_email: "",
@@ -137,6 +165,69 @@ function buildScanNotes(result: SlipScanResult) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function splitExpenseNotes(notes?: string | null) {
+  const lines = (notes ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const technicalPrefixes = [
+    "paymentStatus:",
+    "checkoutStatus:",
+    "contractAddress:",
+    "checkoutSessionId:",
+    "network:",
+    "settlementMethod:",
+    "transactionHash:",
+  ];
+  const technicalLines = lines.filter((line) =>
+    technicalPrefixes.some((prefix) => line.startsWith(prefix)),
+  );
+  const publicLines = lines.filter(
+    (line) =>
+      !technicalLines.includes(line) && line !== "Demo payment references only.",
+  );
+
+  return {
+    publicNotes: publicLines.join("\n"),
+    technicalDetails: technicalLines.map((line) => {
+      const [label, ...valueParts] = line.split(":");
+      return {
+        label,
+        value: valueParts.join(":").trim(),
+      };
+    }),
+  };
+}
+
+function technicalValue(notes: string | null | undefined, key: string) {
+  const { technicalDetails } = splitExpenseNotes(notes);
+  return technicalDetails.find((detail) => detail.label === key)?.value ?? null;
+}
+
+function humanizeTechnicalLabel(label: string) {
+  const labels: Record<string, string> = {
+    paymentStatus: "Payment status",
+    checkoutStatus: "Checkout status",
+    contractAddress: "Contract",
+    checkoutSessionId: "Checkout session",
+    network: "Network",
+    settlementMethod: "Method",
+    transactionHash: "Transaction",
+  };
+
+  return labels[label] ?? label;
+}
+
+function paymentStatusTone(status?: string | null): "green" | "amber" | "rose" | "slate" {
+  const normalized = status?.toLowerCase();
+
+  if (normalized === "paid" || normalized === "confirmed") return "green";
+  if (normalized === "failed") return "rose";
+  if (normalized === "pending" || normalized === "mock_checkout_created") return "amber";
+
+  return "slate";
 }
 
 function baseSepoliaTxUrl(hash: string) {
@@ -183,6 +274,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   const [aiStatus, setAiStatus] = useState<AiStatus>("idle");
   const [scanOpen, setScanOpen] = useState(false);
   const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const [lastScanResult, setLastScanResult] = useState<SlipScanResult | null>(null);
+  const [activeTab, setActiveTab] = useState<GroupTab>("overview");
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -246,7 +339,11 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         remaining: 0,
         spentPercent: 0,
         topCategory: "none",
+        topCategoryAmount: 0,
         pendingAmount: 0,
+        unpaidCount: 0,
+        youOwe: 0,
+        owedToYou: 0,
         categoryTotals: [] as Array<[string, number]>,
       };
     }
@@ -269,6 +366,9 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     const pendingAmount = workspace.splits
       .filter((split) => split.status === "unpaid")
       .reduce((sum, split) => sum + split.amount_owed, 0);
+    const unpaidSplits = workspace.splits.filter((split) => split.status === "unpaid");
+    const expensesById = new Map(workspace.expenses.map((expense) => [expense.id, expense]));
+    const currentUserId = user?.id ?? "";
 
     return {
       totalSpent,
@@ -278,10 +378,18 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           ? Math.min((totalSpent / workspace.workspace.total_budget) * 100, 100)
           : 0,
       topCategory: sortedCategories[0]?.[0] ?? "none",
+      topCategoryAmount: sortedCategories[0]?.[1] ?? 0,
       pendingAmount,
+      unpaidCount: unpaidSplits.length,
+      youOwe: unpaidSplits
+        .filter((split) => split.user_id === currentUserId)
+        .reduce((sum, split) => sum + split.amount_owed, 0),
+      owedToYou: unpaidSplits
+        .filter((split) => expensesById.get(split.expense_id)?.paid_by === currentUserId)
+        .reduce((sum, split) => sum + split.amount_owed, 0),
       categoryTotals: sortedCategories,
     };
-  }, [workspace]);
+  }, [user?.id, workspace]);
 
   async function handleInvite(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -329,6 +437,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         split_user_ids: members.map((member) => member.user_id),
       });
       setScanNotice(null);
+      setLastScanResult(null);
       await refreshWorkspace();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not add expense");
@@ -358,7 +467,47 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       category: mapScanCategory(result.category),
       notes: buildScanNotes(result),
     }));
+    setLastScanResult(result);
     setScanNotice("Expense auto-filled from slip. Please review before saving.");
+  }
+
+  async function performSettlement(split: ExpenseSplit) {
+    const expense = expensesById.get(split.expense_id);
+    if (!expense) throw new Error("Expense not found");
+
+    const receiverWallet = expense.paid_by_profile?.wallet_address ?? "";
+    let txHash = mockHash();
+    let settlementStatus: "confirmed" | "mocked" = "mocked";
+    let senderWallet = address ?? "mock-wallet";
+
+    if (isConnected && address && isAddress(receiverWallet)) {
+      if (chainId !== baseSepolia.id) {
+        await switchChainAsync({ chainId: baseSepolia.id });
+      }
+
+      const hash = await sendTransactionAsync({
+        to: receiverWallet as Address,
+        value: parseEther("0.000001"),
+      });
+
+      await waitForTransactionReceipt(wagmiConfig, {
+        chainId: baseSepolia.id,
+        hash: hash as Hash,
+      });
+
+      txHash = hash;
+      senderWallet = address;
+      settlementStatus = "confirmed";
+    }
+
+    await recordSettlement({
+      splitId: split.id,
+      senderWallet,
+      receiverWallet: receiverWallet || "mock-recipient",
+      amount: split.amount_owed,
+      txHash,
+      status: settlementStatus,
+    });
   }
 
   async function handleSettle(split: ExpenseSplit) {
@@ -366,42 +515,28 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     setError(null);
 
     try {
-      const expense = expensesById.get(split.expense_id);
-      if (!expense) throw new Error("Expense not found");
+      await performSettlement(split);
+      await refreshWorkspace();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Settlement failed");
+    } finally {
+      setSettlingId(null);
+    }
+  }
 
-      const receiverWallet = expense.paid_by_profile?.wallet_address ?? "";
-      let txHash = mockHash();
-      let settlementStatus: "confirmed" | "mocked" = "mocked";
-      let senderWallet = address ?? "mock-wallet";
+  async function handleSettleAllMyDebts() {
+    const myDebts = (workspace?.splits ?? []).filter(
+      (split) => split.status === "unpaid" && split.user_id === user?.id,
+    );
+    if (myDebts.length === 0) return;
 
-      if (isConnected && address && isAddress(receiverWallet)) {
-        if (chainId !== baseSepolia.id) {
-          await switchChainAsync({ chainId: baseSepolia.id });
-        }
+    setSettlingId("all");
+    setError(null);
 
-        const hash = await sendTransactionAsync({
-          to: receiverWallet as Address,
-          value: parseEther("0.000001"),
-        });
-
-        await waitForTransactionReceipt(wagmiConfig, {
-          chainId: baseSepolia.id,
-          hash: hash as Hash,
-        });
-
-        txHash = hash;
-        senderWallet = address;
-        settlementStatus = "confirmed";
+    try {
+      for (const split of myDebts) {
+        await performSettlement(split);
       }
-
-      await recordSettlement({
-        splitId: split.id,
-        senderWallet,
-        receiverWallet: receiverWallet || "mock-recipient",
-        amount: split.amount_owed,
-        txHash,
-        status: settlementStatus,
-      });
       await refreshWorkspace();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Settlement failed");
@@ -492,6 +627,11 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     }
   }
 
+  function openAiWithQuestion(question: string) {
+    setAiQuestion(question);
+    setActiveTab("ai");
+  }
+
   if (authLoading || loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50">
@@ -565,7 +705,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
             <div className="grid gap-3 sm:grid-cols-2 xl:w-[420px]">
               <div className="rounded-[24px] border border-slate-200 bg-white/85 p-4 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  Pending
+                  Unpaid balances
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-slate-950">
                   {formatMoney(metrics.pendingAmount, room.currency)}
@@ -596,89 +736,82 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="Total budget"
-            value={formatMoney(room.total_budget, room.currency)}
-            detail="Group budget cap"
-            icon={CircleDollarSign}
-            tone="blue"
-          />
-          <StatCard
-            label="Total spent"
-            value={formatMoney(metrics.totalSpent, room.currency)}
-            detail={`${metrics.spentPercent.toFixed(0)}% of budget used`}
-            icon={ReceiptText}
-            tone="teal"
-          />
-          <StatCard
-            label="Remaining"
-            value={formatMoney(metrics.remaining, room.currency)}
-            detail={metrics.remaining < 0 ? "Needs attention" : "Available budget"}
-            icon={Wallet}
-            tone={metrics.remaining < 0 ? "amber" : "green"}
-          />
-          <StatCard
-            label="Members"
-            value={members.length.toString()}
-            detail="Active accounts"
-            icon={Users}
-            tone="slate"
-          />
-        </section>
+        <FlowSteps />
+        <CurrencyStrip budgetCurrency={room.currency} />
+        <GroupTabs activeTab={activeTab} onChange={setActiveTab} />
 
-        <SectionCard elevated>
-          <SectionHeader
-            eyebrow="Budget health"
-            title="Usage and category signal"
-            description={`Highest category: ${metrics.topCategory}. ${splits.filter((split) => split.status === "unpaid").length} unpaid split rows remain.`}
-            action={
-              <Badge tone={metrics.remaining < 0 ? "rose" : "green"}>
-                <TrendingUp className="size-3.5" aria-hidden="true" />
-                {metrics.spentPercent.toFixed(0)}% used
-              </Badge>
-            }
-          />
-          <ProgressBar
-            value={metrics.spentPercent}
-            danger={metrics.remaining < 0}
-            className="mt-6 h-4"
-          />
-          <div className="mt-6 grid gap-3 md:grid-cols-3">
-            {metrics.categoryTotals.length === 0 ? (
-              <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500 md:col-span-3">
-                Add expenses to see category breakdown.
-              </div>
-            ) : (
-              metrics.categoryTotals.slice(0, 3).map(([category, amount]) => (
-                <div
-                  key={category}
-                  className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4"
-                >
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                    {category}
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-slate-950">
-                    {formatMoney(amount, room.currency)}
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
-        </SectionCard>
-
-        <section className="grid gap-6 xl:grid-cols-[430px_1fr]">
+        {activeTab === "overview" ? (
           <div className="space-y-6">
-            <MembersPanel
-              members={members}
-              invites={invites}
-              canManage={canManage}
-              inviteForm={inviteForm}
-              inviteSaving={inviteSaving}
-              inviteLink={inviteLink}
-              setInviteForm={setInviteForm}
-              onInvite={handleInvite}
-            />
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <StatCard
+                label="Group budget"
+                value={formatMoney(room.total_budget, room.currency)}
+                detail={`Budget currency: ${room.currency}`}
+                icon={CircleDollarSign}
+                tone="blue"
+              />
+              <StatCard
+                label="Spent"
+                value={formatMoney(metrics.totalSpent, room.currency)}
+                detail={`${metrics.spentPercent.toFixed(0)}% through budget`}
+                icon={ReceiptText}
+                tone="teal"
+              />
+              <StatCard
+                label="Remaining"
+                value={formatMoney(metrics.remaining, room.currency)}
+                detail={metrics.remaining < 0 ? "Needs attention" : "Available budget"}
+                icon={Wallet}
+                tone={metrics.remaining < 0 ? "amber" : "green"}
+              />
+              <StatCard
+                label="Members"
+                value={members.length.toString()}
+                detail="Active accounts"
+                icon={Users}
+                tone="slate"
+              />
+            </section>
+
+            <div className="grid gap-6 xl:grid-cols-[1fr_430px]">
+              <div className="space-y-6">
+                <SpendingOverviewCard
+                  metrics={metrics}
+                  currency={room.currency}
+                />
+                <AiSummaryCard
+                  groupName={room.name}
+                  budget={room.total_budget}
+                  currency={room.currency}
+                  totalSpent={metrics.totalSpent}
+                  remaining={metrics.remaining}
+                  unpaidCount={metrics.unpaidCount}
+                  topCategory={metrics.topCategory}
+                />
+                <AiInsightCards
+                  metrics={metrics}
+                  currency={room.currency}
+                  onAskAi={openAiWithQuestion}
+                  onSettle={() => setActiveTab("settle")}
+                  onAddExpense={() => setActiveTab("expenses")}
+                />
+              </div>
+              <MembersPanel
+                members={members}
+                invites={invites}
+                canManage={canManage}
+                inviteForm={inviteForm}
+                inviteSaving={inviteSaving}
+                inviteLink={inviteLink}
+                setInviteForm={setInviteForm}
+                onInvite={handleInvite}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === "expenses" ? (
+          <section className="grid gap-6 xl:grid-cols-[430px_1fr]">
             <ExpenseFormPanel
               members={members}
               canManage={canManage}
@@ -688,33 +821,31 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               expenseSaving={expenseSaving}
               sharePreview={sharePreview}
               scanNotice={scanNotice}
+              lastScanResult={lastScanResult}
               onOpenScan={() => setScanOpen(true)}
               setExpenseForm={setExpenseForm}
               toggleSplitUser={toggleSplitUser}
               onSubmit={handleAddExpense}
             />
-          </div>
-          <div className="space-y-6">
-            <AssistantPanel
-              aiMessages={aiMessages}
-              aiQuestion={aiQuestion}
-              aiLoading={aiLoading}
-              aiStatus={aiStatus}
-              setAiQuestion={setAiQuestion}
-              onSubmit={handleAskAi}
+            <ExpensesPanel
+              expenses={expenses}
+              members={members}
+              currency={room.currency}
             />
+          </section>
+        ) : null}
+
+        {activeTab === "settle" ? (
+          <div className="space-y-6">
             <BalancesPanel
               splits={splits}
               expenses={expenses}
               members={members}
               currency={room.currency}
+              currentUserId={user?.id ?? ""}
               settlingId={settlingId}
               onSettle={handleSettle}
-            />
-            <ExpensesPanel
-              expenses={expenses}
-              members={members}
-              currency={room.currency}
+              onSettleAll={handleSettleAllMyDebts}
             />
             {settlements.length > 0 ? (
               <SettlementHistoryPanel
@@ -723,7 +854,27 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               />
             ) : null}
           </div>
-        </section>
+        ) : null}
+
+        {activeTab === "ai" ? (
+          <div className="space-y-6">
+            <AiInsightCards
+              metrics={metrics}
+              currency={room.currency}
+              onAskAi={openAiWithQuestion}
+              onSettle={() => setActiveTab("settle")}
+              onAddExpense={() => setActiveTab("expenses")}
+            />
+            <AssistantPanel
+              aiMessages={aiMessages}
+              aiQuestion={aiQuestion}
+              aiLoading={aiLoading}
+              aiStatus={aiStatus}
+              setAiQuestion={setAiQuestion}
+              onSubmit={handleAskAi}
+            />
+          </div>
+        ) : null}
         <SmartSlipScanModal
           open={scanOpen}
           onClose={() => setScanOpen(false)}
@@ -731,6 +882,252 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         />
       </div>
     </AppShell>
+  );
+}
+
+function FlowSteps() {
+  const steps = [
+    "Create group",
+    "Add or scan expense",
+    "See who owes",
+    "Ask AI",
+    "Settle payment",
+  ];
+
+  return (
+    <div className="rounded-[28px] border border-slate-200 bg-white/85 p-4 shadow-sm">
+      <div className="grid gap-3 md:grid-cols-5">
+        {steps.map((step, index) => (
+          <div
+            key={step}
+            className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-xs font-semibold text-white">
+              {index + 1}
+            </span>
+            <span className="text-sm font-semibold text-slate-700">{step}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CurrencyStrip({ budgetCurrency }: { budgetCurrency: string }) {
+  return (
+    <div className="grid gap-3 rounded-[28px] border border-teal-100 bg-gradient-to-r from-teal-50 via-white to-cyan-50 p-4 shadow-sm md:grid-cols-3">
+      <CurrencyItem label="Budget currency" value={budgetCurrency} />
+      <CurrencyItem label="Settlement currency" value="USDC demo" />
+      <CurrencyItem label="Network" value="Base Sepolia" />
+    </div>
+  );
+}
+
+function CurrencyItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function GroupTabs({
+  activeTab,
+  onChange,
+}: {
+  activeTab: GroupTab;
+  onChange: (tab: GroupTab) => void;
+}) {
+  return (
+    <div className="grid gap-2 rounded-[28px] border border-slate-200 bg-white p-2 shadow-sm md:grid-cols-4">
+      {groupTabs.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          onClick={() => onChange(tab.id)}
+          className={cn(
+            "rounded-2xl px-4 py-3 text-left hover:bg-slate-50",
+            activeTab === tab.id && "bg-slate-950 text-white hover:bg-slate-950",
+          )}
+        >
+          <span className="block text-sm font-semibold">{tab.label}</span>
+          <span
+            className={cn(
+              "mt-1 block text-xs leading-5 text-slate-500",
+              activeTab === tab.id && "text-slate-300",
+            )}
+          >
+            {tab.description}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SpendingOverviewCard({
+  metrics,
+  currency,
+}: {
+  metrics: {
+    spentPercent: number;
+    remaining: number;
+    topCategory: string;
+    categoryTotals: Array<[string, number]>;
+  };
+  currency: string;
+}) {
+  return (
+    <SectionCard elevated>
+      <SectionHeader
+        eyebrow="Spending overview"
+        title="Top spending category"
+        description={`Highest category: ${metrics.topCategory}. Track this first before adding more expenses.`}
+        action={
+          <Badge tone={metrics.remaining < 0 ? "rose" : "green"}>
+            <TrendingUp className="size-3.5" aria-hidden="true" />
+            {metrics.spentPercent.toFixed(0)}% used
+          </Badge>
+        }
+      />
+      <ProgressBar
+        value={metrics.spentPercent}
+        danger={metrics.remaining < 0}
+        className="mt-6 h-4"
+      />
+      <div className="mt-6 grid gap-3 md:grid-cols-3">
+        {metrics.categoryTotals.length === 0 ? (
+          <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500 md:col-span-3">
+            Add expenses to see category breakdown.
+          </div>
+        ) : (
+          metrics.categoryTotals.slice(0, 3).map(([category, amount]) => (
+            <div
+              key={category}
+              className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4"
+            >
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                {category}
+              </p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">
+                {formatMoney(amount, currency)}
+              </p>
+            </div>
+          ))
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+function AiSummaryCard({
+  groupName,
+  budget,
+  currency,
+  totalSpent,
+  remaining,
+  unpaidCount,
+  topCategory,
+}: {
+  groupName: string;
+  budget: number;
+  currency: string;
+  totalSpent: number;
+  remaining: number;
+  unpaidCount: number;
+  topCategory: string;
+}) {
+  return (
+    <SectionCard elevated>
+      <SectionHeader
+        eyebrow="AI summary"
+        title="What judges should notice"
+        description="A plain-language budget brief without opening the chat."
+      />
+      <p className="mt-5 rounded-[24px] border border-teal-100 bg-teal-50/70 p-5 text-sm leading-7 text-slate-700">
+        {groupName} has spent {formatMoney(totalSpent, currency)} out of{" "}
+        {formatMoney(budget, currency)}. Top spending is {topCategory}.{" "}
+        {unpaidCount} unpaid balance{unpaidCount === 1 ? "" : "s"} remain.{" "}
+        {remaining < 0
+          ? `The group is over budget by ${formatMoney(Math.abs(remaining), currency)}.`
+          : `${formatMoney(remaining, currency)} remains.`}
+      </p>
+    </SectionCard>
+  );
+}
+
+function AiInsightCards({
+  metrics,
+  currency,
+  onAskAi,
+  onSettle,
+  onAddExpense,
+}: {
+  metrics: {
+    topCategory: string;
+    topCategoryAmount: number;
+    unpaidCount: number;
+    spentPercent: number;
+  };
+  currency: string;
+  onAskAi: (question: string) => void;
+  onSettle: () => void;
+  onAddExpense: () => void;
+}) {
+  const cards = [
+    {
+      title:
+        metrics.topCategory === "none"
+          ? "No spending category yet"
+          : `${metrics.topCategory} is your highest category`,
+      detail:
+        metrics.topCategory === "none"
+          ? "Add the first expense to unlock category insights."
+          : `${formatMoney(metrics.topCategoryAmount, currency)} recorded so far.`,
+      action: "Ask AI",
+      onClick: () => onAskAi("Where did we spend the most?"),
+    },
+    {
+      title: `${metrics.unpaidCount} unpaid balance${metrics.unpaidCount === 1 ? "" : "s"} remain`,
+      detail: "Open checkout settlement to clear debts on Base Sepolia demo flow.",
+      action: "Settle now",
+      onClick: onSettle,
+    },
+    {
+      title: `You are ${metrics.spentPercent.toFixed(0)}% through budget`,
+      detail: "Scan another receipt or add a manual expense to keep the ledger fresh.",
+      action: "Add expense",
+      onClick: onAddExpense,
+    },
+  ];
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-3">
+      {cards.map((card) => (
+        <div
+          key={card.title}
+          className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-[0_22px_70px_rgba(15,23,42,0.06)]"
+        >
+          <div className="flex size-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
+            <Sparkles className="size-5" aria-hidden="true" />
+          </div>
+          <h3 className="mt-4 text-base font-semibold tracking-tight text-slate-950">
+            {card.title}
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-slate-500">{card.detail}</p>
+          <button
+            type="button"
+            onClick={card.onClick}
+            className="mt-4 inline-flex h-10 items-center justify-center rounded-2xl border border-teal-200 bg-teal-50 px-4 text-sm font-semibold text-teal-800 hover:bg-teal-100"
+          >
+            {card.action}
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -876,6 +1273,7 @@ function ExpenseFormPanel({
   expenseSaving,
   sharePreview,
   scanNotice,
+  lastScanResult,
   onOpenScan,
   setExpenseForm,
   toggleSplitUser,
@@ -889,6 +1287,7 @@ function ExpenseFormPanel({
   expenseSaving: boolean;
   sharePreview: number;
   scanNotice: string | null;
+  lastScanResult: SlipScanResult | null;
   onOpenScan: () => void;
   setExpenseForm: React.Dispatch<React.SetStateAction<CreateExpenseInput>>;
   toggleSplitUser: (userId: string) => void;
@@ -930,6 +1329,9 @@ function ExpenseFormPanel({
             <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800">
               {scanNotice}
             </div>
+          ) : null}
+          {lastScanResult ? (
+            <ScanResultCard result={lastScanResult} groupCurrency={groupCurrency} />
           ) : null}
         </div>
 
@@ -1065,6 +1467,53 @@ function ExpenseFormPanel({
   );
 }
 
+function ScanResultCard({
+  result,
+  groupCurrency,
+}: {
+  result: SlipScanResult;
+  groupCurrency: string;
+}) {
+  const amount =
+    result.amount === null
+      ? "Amount missing"
+      : formatMoney(result.amount, result.currency ?? groupCurrency);
+
+  return (
+    <div className="mt-4 rounded-2xl border border-teal-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">
+            Scan result added to expense
+          </p>
+          <p className="mt-1 text-sm font-semibold text-slate-950">
+            {result.merchant ?? result.title ?? "Scanned expense"}
+          </p>
+        </div>
+        <Badge tone={result.confidence < 0.7 ? "amber" : "green"}>
+          {Math.round(result.confidence * 100)}% confidence
+        </Badge>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <MiniDetail label="Amount" value={amount} />
+        <MiniDetail label="Category" value={result.category} />
+        <MiniDetail label="Status" value="Added to expense" />
+      </div>
+    </div>
+  );
+}
+
+function MiniDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-xs font-semibold text-slate-700">{value}</p>
+    </div>
+  );
+}
+
 function AssistantPanel({
   aiMessages,
   aiQuestion,
@@ -1185,26 +1634,69 @@ function BalancesPanel({
   expenses,
   members,
   currency,
+  currentUserId,
   settlingId,
   onSettle,
+  onSettleAll,
 }: {
   splits: ExpenseSplit[];
   expenses: Expense[];
   members: WorkspaceMember[];
   currency: string;
+  currentUserId: string;
   settlingId: string | null;
   onSettle: (split: ExpenseSplit) => Promise<void>;
+  onSettleAll: () => Promise<void>;
 }) {
-  const unpaidCount = splits.filter((split) => split.status === "unpaid").length;
+  const unpaidSplits = splits.filter((split) => split.status === "unpaid");
+  const unpaidCount = unpaidSplits.length;
+  const myDebts = unpaidSplits.filter((split) => split.user_id === currentUserId);
+  const myDebtTotal = myDebts.reduce((sum, split) => sum + split.amount_owed, 0);
   const expensesById = new Map(expenses.map((expense) => [expense.id, expense]));
 
   return (
     <SectionCard elevated>
       <SectionHeader
-        eyebrow="Settlement"
-        title="Balances"
-        description={`${unpaidCount} unpaid balance${unpaidCount === 1 ? "" : "s"} ready for testnet or mock settlement.`}
+        eyebrow="Checkout settlement"
+        title="Unpaid balances"
+        description={`${unpaidCount} balance${unpaidCount === 1 ? "" : "s"} ready for Locus Checkout Demo on Base Sepolia.`}
+        action={
+          myDebts.length > 0 ? (
+            <PrimaryButton
+              type="button"
+              onClick={() => void onSettleAll()}
+              disabled={settlingId === "all"}
+              className="h-11 bg-teal-600 px-4 shadow-[0_16px_36px_rgba(13,148,136,0.22)] hover:bg-teal-700"
+            >
+              {settlingId === "all" ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Send className="size-4" aria-hidden="true" />
+              )}
+              Settle all my debts
+            </PrimaryButton>
+          ) : null
+        }
       />
+
+      {myDebts.length > 0 ? (
+        <div className="mt-5 rounded-[24px] border border-teal-100 bg-gradient-to-r from-teal-50 to-cyan-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">
+            Your checkout total
+          </p>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-3xl font-semibold tracking-tight text-slate-950">
+                {formatMoney(myDebtTotal, "USDC")}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                Settlement currency: USDC demo. Network: Base Sepolia.
+              </p>
+            </div>
+            <Badge tone="teal">Method: Locus Checkout Demo</Badge>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-6 space-y-3">
         {splits.length === 0 ? (
@@ -1226,7 +1718,7 @@ function BalancesPanel({
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex items-start gap-4">
                     <AvatarToken name={profileLabel(split.profile)} />
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-slate-950">
                           {profileLabel(split.profile)} owes{" "}
@@ -1241,16 +1733,32 @@ function BalancesPanel({
                       <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                         {formatMoney(split.amount_owed, currency)}
                       </p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                          Method: Locus Checkout Demo
+                        </span>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                          Network: Base Sepolia
+                        </span>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                          Settlement currency: USDC
+                        </span>
+                      </div>
                       {split.settlement_tx_hash ? (
-                        <a
-                          href={baseSepoliaTxUrl(split.settlement_tx_hash)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-2 inline-flex items-center gap-1 font-mono text-xs font-semibold text-teal-700 hover:underline"
-                        >
-                          {shortAddress(split.settlement_tx_hash)}
-                          <ExternalLink className="size-3" aria-hidden="true" />
-                        </a>
+                        <details className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          <summary className="cursor-pointer text-xs font-semibold text-slate-600">
+                            View technical details
+                          </summary>
+                          <a
+                            href={baseSepoliaTxUrl(split.settlement_tx_hash)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-3 inline-flex items-center gap-1 font-mono text-xs font-semibold text-teal-700 hover:underline"
+                          >
+                            {shortAddress(split.settlement_tx_hash)}
+                            <ExternalLink className="size-3" aria-hidden="true" />
+                          </a>
+                        </details>
                       ) : null}
                     </div>
                   </div>
@@ -1261,19 +1769,43 @@ function BalancesPanel({
                       Paid
                     </span>
                   ) : (
-                    <PrimaryButton
-                      type="button"
-                      onClick={() => void onSettle(split)}
-                      disabled={settlingId === split.id}
-                      className="h-11 bg-teal-600 shadow-[0_16px_36px_rgba(13,148,136,0.22)] hover:bg-teal-700"
-                    >
-                      {settlingId === split.id ? (
-                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                      ) : (
-                        <Send className="size-4" aria-hidden="true" />
-                      )}
-                      Settle
-                    </PrimaryButton>
+                    <div className="w-full rounded-[22px] border border-teal-100 bg-teal-50/70 p-4 lg:w-80">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">
+                        Checkout summary
+                      </p>
+                      <div className="mt-3 space-y-2 text-sm text-slate-700">
+                        <CheckoutSummaryRow
+                          label="Recipient"
+                          value={expense ? userName(expense.paid_by, members) : "Payer"}
+                        />
+                        <CheckoutSummaryRow
+                          label="Amount"
+                          value={formatMoney(split.amount_owed, "USDC")}
+                        />
+                        <CheckoutSummaryRow
+                          label="Total"
+                          value={formatMoney(split.amount_owed, "USDC")}
+                        />
+                        <CheckoutSummaryRow
+                          label="Method"
+                          value="Locus Checkout Demo"
+                        />
+                        <CheckoutSummaryRow label="Network" value="Base Sepolia" />
+                      </div>
+                      <PrimaryButton
+                        type="button"
+                        onClick={() => void onSettle(split)}
+                        disabled={settlingId === split.id || settlingId === "all"}
+                        className="mt-4 h-11 w-full bg-teal-600 shadow-[0_16px_36px_rgba(13,148,136,0.22)] hover:bg-teal-700"
+                      >
+                        {settlingId === split.id ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Send className="size-4" aria-hidden="true" />
+                        )}
+                        Checkout settle
+                      </PrimaryButton>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1282,6 +1814,66 @@ function BalancesPanel({
         )}
       </div>
     </SectionCard>
+  );
+}
+
+function CheckoutSummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-slate-500">{label}</span>
+      <span className="text-right font-semibold text-slate-950">{value}</span>
+    </div>
+  );
+}
+
+function TechnicalDetailsDisclosure({
+  details,
+}: {
+  details: Array<{ label: string; value: string }>;
+}) {
+  if (details.length === 0) return null;
+
+  return (
+    <details className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+      <summary className="cursor-pointer text-xs font-semibold text-slate-600">
+        View technical details
+      </summary>
+      <div className="mt-3 space-y-2">
+        {details.map((detail) => {
+          const isExplorerHash = detail.label === "transactionHash";
+          const value =
+            detail.label === "transactionHash" || detail.label === "contractAddress"
+              ? shortAddress(detail.value)
+              : detail.value;
+
+          return (
+            <div
+              key={`${detail.label}-${detail.value}`}
+              className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between"
+            >
+              <span className="font-semibold text-slate-500">
+                {humanizeTechnicalLabel(detail.label)}
+              </span>
+              {isExplorerHash ? (
+                <a
+                  href={baseSepoliaTxUrl(detail.value)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 font-mono font-semibold text-teal-700 hover:underline"
+                >
+                  {value}
+                  <ExternalLink className="size-3" aria-hidden="true" />
+                </a>
+              ) : (
+                <span className="break-all font-mono font-semibold text-slate-700">
+                  {value}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </details>
   );
 }
 
@@ -1309,32 +1901,58 @@ function ExpensesPanel({
             body="Add the first receipt to start tracking group spending."
           />
         ) : (
-          expenses.map((expense) => (
-            <div
-              key={expense.id}
-              className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm"
-            >
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold text-slate-950">{expense.title}</h3>
-                    <Badge tone="slate">{expense.category}</Badge>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-500">
-                    Paid by {userName(expense.paid_by, members)}.
-                  </p>
-                  {expense.notes ? (
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      {expense.notes}
+          expenses.map((expense) => {
+            const { publicNotes, technicalDetails } = splitExpenseNotes(expense.notes);
+            const method =
+              technicalValue(expense.notes, "settlementMethod") ??
+              "Manual split";
+            const network =
+              technicalValue(expense.notes, "network") ?? "Base Sepolia";
+            const status =
+              technicalValue(expense.notes, "paymentStatus") ??
+              technicalValue(expense.notes, "checkoutStatus");
+
+            return (
+              <div
+                key={expense.id}
+                className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold text-slate-950">{expense.title}</h3>
+                      <Badge tone="slate">{expense.category}</Badge>
+                      {status ? (
+                        <Badge tone={paymentStatusTone(status)}>
+                          Status: {status.replaceAll("_", " ")}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">
+                      Paid by {userName(expense.paid_by, members)}.
                     </p>
-                  ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                        Method: {method}
+                      </span>
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                        Network: {network}
+                      </span>
+                    </div>
+                    {publicNotes ? (
+                      <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-600">
+                        {publicNotes}
+                      </p>
+                    ) : null}
+                    <TechnicalDetailsDisclosure details={technicalDetails} />
+                  </div>
+                  <p className="shrink-0 text-2xl font-semibold tracking-tight text-slate-950">
+                    {formatMoney(expense.amount, currency)}
+                  </p>
                 </div>
-                <p className="text-2xl font-semibold tracking-tight text-slate-950">
-                  {formatMoney(expense.amount, currency)}
-                </p>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </SectionCard>
@@ -1353,16 +1971,13 @@ function SettlementHistoryPanel({
       <SectionHeader
         eyebrow="Receipts"
         title="Settlement history"
-        description="Confirmed and mock settlements are kept with explorer-ready hashes."
+        description="Checkout receipts stay readable, with transaction hashes hidden until needed."
       />
       <div className="mt-6 space-y-3">
         {settlements.map((settlement) => (
-          <a
+          <div
             key={settlement.id}
-            href={baseSepoliaTxUrl(settlement.tx_hash)}
-            target="_blank"
-            rel="noreferrer"
-            className="flex flex-col gap-3 rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-[0_18px_50px_rgba(15,23,42,0.08)] sm:flex-row sm:items-center sm:justify-between"
+            className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm"
           >
             <div className="flex items-center gap-3">
               <div className="flex size-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
@@ -1370,15 +1985,38 @@ function SettlementHistoryPanel({
               </div>
               <div>
                 <p className="font-semibold text-slate-950">
-                  {formatMoney(settlement.amount, currency)} settled
+                  {formatMoney(settlement.amount, "USDC")} settled
                 </p>
-                <p className="mt-1 font-mono text-xs text-slate-500">
-                  {shortAddress(settlement.tx_hash)} / {settlement.status}
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Balance cleared: {formatMoney(settlement.amount, currency)}
                 </p>
               </div>
             </div>
-            <ExternalLink className="size-4 text-slate-400" aria-hidden="true" />
-          </a>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Badge tone={paymentStatusTone(settlement.status)}>
+                Status: {settlement.status}
+              </Badge>
+              <Badge tone="teal">Method: Locus Checkout Demo</Badge>
+              <Badge tone="blue">
+                Network:{" "}
+                {settlement.network === "base-sepolia"
+                  ? "Base Sepolia"
+                  : settlement.network}
+              </Badge>
+            </div>
+            <TechnicalDetailsDisclosure
+              details={[
+                { label: "transactionHash", value: settlement.tx_hash },
+                {
+                  label: "network",
+                  value:
+                    settlement.network === "base-sepolia"
+                      ? "Base Sepolia"
+                      : settlement.network,
+                },
+              ]}
+            />
+          </div>
         ))}
       </div>
     </SectionCard>

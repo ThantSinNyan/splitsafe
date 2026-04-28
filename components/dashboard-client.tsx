@@ -13,6 +13,7 @@ import {
   ReceiptText,
   ShieldCheck,
   Sparkles,
+  Wallet,
   WalletCards,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
@@ -48,15 +49,19 @@ const initialForm: CreateWorkspaceInput = {
 };
 
 type DashboardStats = {
-  totalBudget: number;
   totalSpent: number;
+  totalUnpaid: number;
   pendingSettlements: number;
+  youOwe: number;
+  owedToYou: number;
 };
 
 const emptyStats: DashboardStats = {
-  totalBudget: 0,
   totalSpent: 0,
+  totalUnpaid: 0,
   pendingSettlements: 0,
+  youOwe: 0,
+  owedToYou: 0,
 };
 
 export function DashboardClient() {
@@ -238,7 +243,7 @@ export function DashboardClient() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <StatCard
             label="Groups"
             value={workspaces.length.toString()}
@@ -247,25 +252,39 @@ export function DashboardClient() {
             tone="teal"
           />
           <StatCard
-            label="Total budget"
-            value={formatMoney(stats.totalBudget, "USD")}
-            detail="Across your groups"
-            icon={CircleDollarSign}
-            tone="blue"
-          />
-          <StatCard
             label="Total spent"
             value={formatMoney(stats.totalSpent, "USD")}
             detail="Visible to your group memberships"
-            icon={ReceiptText}
+            icon={CircleDollarSign}
             tone="green"
           />
           <StatCard
-            label="Pending splits"
+            label="Total unpaid"
+            value={formatMoney(stats.totalUnpaid, "USD")}
+            detail="All unpaid balances"
+            icon={ReceiptText}
+            tone="amber"
+          />
+          <StatCard
+            label="Pending settlements"
             value={stats.pendingSettlements.toString()}
             detail="Unpaid balances"
             icon={Landmark}
             tone="amber"
+          />
+          <StatCard
+            label="You owe"
+            value={formatMoney(stats.youOwe, "USD")}
+            detail="Your unpaid debts"
+            icon={Wallet}
+            tone="rose"
+          />
+          <StatCard
+            label="Owed to you"
+            value={formatMoney(stats.owedToYou, "USD")}
+            detail="Friends still owe you"
+            icon={ShieldCheck}
+            tone="teal"
           />
         </section>
 
