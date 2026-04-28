@@ -36,7 +36,7 @@ SplitSafe gives each group a private budget room:
 - See unpaid balances clearly
 - Ask SplitSafe AI for summaries and suggestions
 - Upload a receipt or bank slip to pre-fill an expense for review
-- Mock-settle or settle with Base Sepolia testnet wallets
+- Mock-settle or settle with 0G Galileo Testnet wallets, with Base Sepolia kept as a fallback
 
 ## Tech Stack
 
@@ -45,7 +45,7 @@ SplitSafe gives each group a private budget room:
 - Supabase Auth + Postgres + RLS
 - Gemini API through a server-only Next.js route
 - wagmi + viem + RainbowKit
-- Base Sepolia testnet
+- 0G Galileo Testnet by default, Base Sepolia as fallback/legacy
 - Vercel production deploy
 
 ## Brand Assets
@@ -74,6 +74,10 @@ Environment variables:
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_0G_GALILEO_RPC_URL=
+NEXT_PUBLIC_DEFAULT_CHAIN=0g-galileo
+NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
 GEMINI_API_KEY=
 ```
 
@@ -123,14 +127,27 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Base Sepolia
+## Testnet Settlement
 
 SplitSafe only uses testnet/demo settlement.
 
-1. Add Base Sepolia to your wallet.
-2. Fund the wallet with testnet ETH from a faucet.
+Default network:
+
+- 0G Galileo Testnet
+- Chain ID: `16602`
+- Explorer: `https://chainscan-galileo.0g.ai`
+- Development RPC: `https://evmrpc-testnet.0g.ai`
+
+Fallback/legacy network:
+
+- Base Sepolia
+
+Steps:
+
+1. Add 0G Galileo Testnet to your wallet, or keep Base Sepolia for fallback testing.
+2. Fund the wallet with testnet tokens from the relevant faucet.
 3. Connect wallet in the app.
-4. If the payment receiver has a wallet saved on their profile, SplitSafe can send a tiny Base Sepolia ETH test transaction.
+4. If the payment receiver has a wallet saved on their profile, SplitSafe can send a tiny testnet transaction on the active supported network.
 5. If no receiver wallet is available, SplitSafe records a mock settlement.
 
 No mainnet funds are required or requested.
@@ -144,6 +161,10 @@ Required Vercel environment variables:
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_0G_GALILEO_RPC_URL=
+NEXT_PUBLIC_DEFAULT_CHAIN=0g-galileo
+NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
 GEMINI_API_KEY=
 ```
 
@@ -161,7 +182,7 @@ Do not add `.env.local`, wallet private keys, seed phrases, Supabase service rol
 2. Click **Launch App**.
 3. Sign up or log in with Google/email, or click **Try demo mode**.
 4. Demo mode opens as **Alex Demo** with three sample groups: Thailand Trip, ABAC Dinner Group, and Hackathon Team.
-5. Open a group and review members, expenses, balances, messages, and fake Base Sepolia payment references.
+5. Open a group and review members, expenses, balances, messages, and fake 0G Galileo payment references.
 6. Use **Smart Slip Scan** inside Add Expense to upload a receipt/slip, review the extracted result, and fill the form.
 7. Add or edit an expense and split it across active members.
 8. Ask the assistant: `Who still needs to pay?`

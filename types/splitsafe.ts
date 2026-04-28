@@ -134,4 +134,5 @@ export type SettlementInput = {
   amount: number;
   txHash: string;
   status: "confirmed" | "mocked";
+  network?: string;
 };

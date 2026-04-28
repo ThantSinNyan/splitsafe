@@ -14,6 +14,7 @@ import {
   resetLocalDemoData,
   saveLocalAiMessage,
 } from "@/lib/local-demo";
+import { defaultSettlementNetwork } from "@/lib/networks";
 import { requireSupabaseClient } from "@/lib/supabase";
 import { makeId, nowIso, roundMoney } from "@/lib/utils";
 import type {
@@ -154,7 +155,7 @@ function normalizeSettlement(value: unknown): Settlement {
     receiver_wallet: asText(row.receiver_wallet),
     amount: asNumber(row.amount),
     tx_hash: asText(row.tx_hash),
-    network: asText(row.network, "base-sepolia"),
+    network: asText(row.network, defaultSettlementNetwork.id),
     status: asText(row.status, "mocked") as Settlement["status"],
     created_at: asText(row.created_at, nowIso()),
   };
@@ -546,7 +547,7 @@ export async function recordSettlement(input: SettlementInput) {
       receiver_wallet: input.receiverWallet,
       amount: input.amount,
       tx_hash: input.txHash,
-      network: "base-sepolia",
+      network: input.network ?? defaultSettlementNetwork.id,
       status: input.status,
     })
     .select("*")

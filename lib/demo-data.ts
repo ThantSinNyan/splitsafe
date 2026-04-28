@@ -8,13 +8,14 @@ import type {
   Workspace,
   WorkspaceMember,
 } from "@/types/splitsafe";
+import { defaultSettlementNetwork } from "@/lib/networks";
 import { roundMoney } from "@/lib/utils";
 
 export const demoUserId = "demo-alex";
 
 const contractAddress = "0x7A3bC9dE12F45a6789bCdEf0123456789AbCdEf0";
 const checkoutSessionId = "locus_demo_checkout_001";
-const network = "Base Sepolia";
+const network = defaultSettlementNetwork.id;
 const settlementMethod = "Locus Checkout Demo";
 
 const demoTransactionHashes = [

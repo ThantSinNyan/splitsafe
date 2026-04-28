@@ -19,6 +19,7 @@ import {
   SecondaryButton,
   fieldClassName,
 } from "@/components/ui-kit";
+import { defaultSettlementNetwork } from "@/lib/networks";
 import { getSupabaseClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
@@ -145,16 +146,18 @@ function AuthPageContent() {
               split expenses, and keep every group isolated with Supabase RLS.
             </p>
             <div className="mt-8 grid max-w-2xl gap-3 sm:grid-cols-3">
-              {["Private RLS data", "Google or email", "Base Sepolia ready"].map(
-                (item) => (
+              {[
+                "Private RLS data",
+                "Google or email",
+                `${defaultSettlementNetwork.shortLabel} ready`,
+              ].map((item) => (
                   <div
                     key={item}
                     className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
                   >
                     {item}
                   </div>
-                ),
-              )}
+                ))}
             </div>
           </section>
 

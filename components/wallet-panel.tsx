@@ -13,8 +13,11 @@ import { useEffect } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Badge } from "@/components/ui-kit";
 import { localDemoUserId } from "@/lib/local-demo";
+import {
+  defaultSettlementNetwork,
+  getSettlementNetworkByChainId,
+} from "@/lib/networks";
 import { getSupabaseClient } from "@/lib/supabase";
-import { baseSepolia } from "@/lib/wagmi";
 import { cn, shortAddress } from "@/lib/utils";
 
 export function WalletMiniControl() {
@@ -95,7 +98,8 @@ export function WalletPanel({
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { profile, refreshProfile, user } = useAuth();
-  const onBaseSepolia = chainId === baseSepolia.id;
+  const connectedNetwork = getSettlementNetworkByChainId(chainId);
+  const onDefaultNetwork = connectedNetwork?.id === defaultSettlementNetwork.id;
 
   useEffect(() => {
     if (!user || !address || profile?.wallet_address === address) return;
@@ -129,18 +133,30 @@ export function WalletPanel({
               <h2 className="text-base font-semibold tracking-tight text-slate-950">
                 Wallet & network
               </h2>
-              <Badge tone={isConnected ? (onBaseSepolia ? "green" : "amber") : "slate"}>
+              <Badge
+                tone={
+                  isConnected
+                    ? connectedNetwork
+                      ? onDefaultNetwork
+                        ? "green"
+                        : "blue"
+                      : "amber"
+                    : "slate"
+                }
+              >
                 {isConnected
-                  ? onBaseSepolia
-                    ? "Base Sepolia"
+                  ? connectedNetwork
+                    ? connectedNetwork.label
                     : "Wrong network"
                   : "Demo mode"}
               </Badge>
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
               {isConnected
-                ? `${shortAddress(address)} is connected for testnet settlement.`
-                : "Connect a wallet for Base Sepolia settlement, or keep using mock settlement for the demo."}
+                ? `${shortAddress(address)} is connected for ${
+                    connectedNetwork?.label ?? "testnet"
+                  } settlement.`
+                : `Connect a wallet for ${defaultSettlementNetwork.label} settlement, or keep using mock settlement for the demo.`}
             </p>
           </div>
         </div>

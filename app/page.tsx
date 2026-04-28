@@ -19,6 +19,10 @@ import {
   SectionCard,
   SectionHeader,
 } from "@/components/ui-kit";
+import {
+  defaultSettlementNetwork,
+  fallbackSettlementNetwork,
+} from "@/lib/networks";
 
 const features = [
   {
@@ -33,7 +37,7 @@ const features = [
   },
   {
     title: "Checkout settlement",
-    description: "Settle balances with Base Sepolia demo checkout receipts and explorer links.",
+    description: `Settle balances with ${defaultSettlementNetwork.label} demo receipts and explorer links.`,
     icon: Landmark,
   },
   {
@@ -49,7 +53,7 @@ const steps = [
   "Create a private group",
   "Invite members by email",
   "Split expenses automatically",
-  "Settle on Base Sepolia",
+  `Settle on ${defaultSettlementNetwork.shortLabel}`,
 ];
 
 export default function Home() {
@@ -95,7 +99,8 @@ export default function Home() {
               <p className="mt-6 max-w-full text-base leading-8 text-slate-600 sm:max-w-xl sm:text-lg">
                 SplitSafe gives friends, students, families, and small teams a
                 polished group to budget, split expenses, connect wallets, and
-                settle on Base Sepolia without touching mainnet funds.
+                settle on {defaultSettlementNetwork.label} without touching
+                mainnet funds.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:gap-4">
                 <Link
@@ -224,7 +229,10 @@ export default function Home() {
 
       <section className="border-y border-slate-200 bg-slate-50/80">
         <div className="mx-auto grid w-full max-w-7xl gap-5 px-5 py-16 sm:px-8 lg:grid-cols-3">
-          <ValueItem title="Testnet safe" body="Built for Base Sepolia and mock settlement." />
+          <ValueItem
+            title="Testnet safe"
+            body={`Built for ${defaultSettlementNetwork.label}, with ${fallbackSettlementNetwork.label} fallback and mock settlement.`}
+          />
           <ValueItem title="AI resilient" body="Falls back to deterministic summaries without API keys." />
           <ValueItem title="Deployable" body="Supabase-ready, Vercel-ready, and easy to present." />
         </div>
@@ -250,7 +258,9 @@ function ProductPreview() {
             <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">
               Thailand Trip
             </h3>
-            <p className="mt-1 text-sm text-slate-500">3 accounts - Base Sepolia</p>
+            <p className="mt-1 text-sm text-slate-500">
+              3 accounts - {defaultSettlementNetwork.shortLabel}
+            </p>
           </div>
           <Badge tone="green">
             <CheckCircle2 className="size-3.5" aria-hidden="true" />

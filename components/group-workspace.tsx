@@ -57,7 +57,13 @@ import {
   recordSettlement,
   saveAiMessage,
 } from "@/lib/storage";
-import { baseSepolia, wagmiConfig } from "@/lib/wagmi";
+import {
+  defaultSettlementNetwork,
+  getSettlementNetworkByChainId,
+  settlementNetworkLabel,
+  settlementNetworkTxUrl,
+} from "@/lib/networks";
+import { wagmiConfig } from "@/lib/wagmi";
 import {
   cn,
   formatMoney,
@@ -230,8 +236,8 @@ function paymentStatusTone(status?: string | null): "green" | "amber" | "rose" |
   return "slate";
 }
 
-function baseSepoliaTxUrl(hash: string) {
-  return `https://sepolia.basescan.org/tx/${hash}`;
+function transactionExplorerUrl(hash: string, network?: string | null) {
+  return settlementNetworkTxUrl(hash, network);
 }
 
 function mockHash() {
@@ -480,9 +486,12 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     let settlementStatus: "confirmed" | "mocked" = "mocked";
     let senderWallet = address ?? "mock-wallet";
 
+    const settlementNetwork =
+      getSettlementNetworkByChainId(chainId) ?? defaultSettlementNetwork;
+
     if (isConnected && address && isAddress(receiverWallet)) {
-      if (chainId !== baseSepolia.id) {
-        await switchChainAsync({ chainId: baseSepolia.id });
+      if (chainId !== settlementNetwork.chainId) {
+        await switchChainAsync({ chainId: settlementNetwork.chainId });
       }
 
       const hash = await sendTransactionAsync({
@@ -491,7 +500,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       });
 
       await waitForTransactionReceipt(wagmiConfig, {
-        chainId: baseSepolia.id,
+        chainId: settlementNetwork.chainId,
         hash: hash as Hash,
       });
 
@@ -507,6 +516,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       amount: split.amount_owed,
       txHash,
       status: settlementStatus,
+      network: settlementNetwork.id,
     });
   }
 
@@ -840,6 +850,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
             <BalancesPanel
               splits={splits}
               expenses={expenses}
+              settlements={settlements}
               members={members}
               currency={room.currency}
               currentUserId={user?.id ?? ""}
@@ -917,8 +928,11 @@ function CurrencyStrip({ budgetCurrency }: { budgetCurrency: string }) {
   return (
     <div className="grid gap-3 rounded-[28px] border border-teal-100 bg-gradient-to-r from-teal-50 via-white to-cyan-50 p-4 shadow-sm md:grid-cols-3">
       <CurrencyItem label="Budget currency" value={budgetCurrency} />
-      <CurrencyItem label="Settlement currency" value="USDC demo" />
-      <CurrencyItem label="Network" value="Base Sepolia" />
+      <CurrencyItem
+        label="Settlement currency"
+        value={defaultSettlementNetwork.settlementCurrency}
+      />
+      <CurrencyItem label="Network" value={defaultSettlementNetwork.label} />
     </div>
   );
 }
@@ -1092,7 +1106,7 @@ function AiInsightCards({
     },
     {
       title: `${metrics.unpaidCount} unpaid balance${metrics.unpaidCount === 1 ? "" : "s"} remain`,
-      detail: "Open checkout settlement to clear debts on Base Sepolia demo flow.",
+      detail: `Open checkout settlement to clear debts on ${defaultSettlementNetwork.label}.`,
       action: "Settle now",
       onClick: onSettle,
     },
@@ -1632,6 +1646,7 @@ function AssistantPanel({
 function BalancesPanel({
   splits,
   expenses,
+  settlements,
   members,
   currency,
   currentUserId,
@@ -1641,6 +1656,7 @@ function BalancesPanel({
 }: {
   splits: ExpenseSplit[];
   expenses: Expense[];
+  settlements: WorkspaceData["settlements"];
   members: WorkspaceMember[];
   currency: string;
   currentUserId: string;
@@ -1653,13 +1669,18 @@ function BalancesPanel({
   const myDebts = unpaidSplits.filter((split) => split.user_id === currentUserId);
   const myDebtTotal = myDebts.reduce((sum, split) => sum + split.amount_owed, 0);
   const expensesById = new Map(expenses.map((expense) => [expense.id, expense]));
+  const settlementsBySplitId = new Map(
+    settlements.map((settlement) => [settlement.expense_split_id, settlement]),
+  );
 
   return (
     <SectionCard elevated>
       <SectionHeader
         eyebrow="Checkout settlement"
         title="Unpaid balances"
-        description={`${unpaidCount} balance${unpaidCount === 1 ? "" : "s"} ready for Locus Checkout Demo on Base Sepolia.`}
+        description={`${unpaidCount} balance${
+          unpaidCount === 1 ? "" : "s"
+        } ready for Locus Checkout Demo on ${defaultSettlementNetwork.label}.`}
         action={
           myDebts.length > 0 ? (
             <PrimaryButton
@@ -1690,7 +1711,8 @@ function BalancesPanel({
                 {formatMoney(myDebtTotal, "USDC")}
               </p>
               <p className="mt-1 text-sm text-slate-600">
-                Settlement currency: USDC demo. Network: Base Sepolia.
+                Settlement currency: {defaultSettlementNetwork.settlementCurrency}.
+                Network: {defaultSettlementNetwork.label}.
               </p>
             </div>
             <Badge tone="teal">Method: Locus Checkout Demo</Badge>
@@ -1708,6 +1730,8 @@ function BalancesPanel({
         ) : (
           splits.map((split) => {
             const expense = expensesById.get(split.expense_id);
+            const settlement = settlementsBySplitId.get(split.id);
+            const splitNetwork = settlement?.network ?? defaultSettlementNetwork.id;
             const settled = split.status === "paid";
 
             return (
@@ -1738,7 +1762,7 @@ function BalancesPanel({
                           Method: Locus Checkout Demo
                         </span>
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                          Network: Base Sepolia
+                          Network: {settlementNetworkLabel(splitNetwork)}
                         </span>
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                           Settlement currency: USDC
@@ -1750,7 +1774,10 @@ function BalancesPanel({
                             View technical details
                           </summary>
                           <a
-                            href={baseSepoliaTxUrl(split.settlement_tx_hash)}
+                            href={transactionExplorerUrl(
+                              split.settlement_tx_hash,
+                              splitNetwork,
+                            )}
                             target="_blank"
                             rel="noreferrer"
                             className="mt-3 inline-flex items-center gap-1 font-mono text-xs font-semibold text-teal-700 hover:underline"
@@ -1790,7 +1817,10 @@ function BalancesPanel({
                           label="Method"
                           value="Locus Checkout Demo"
                         />
-                        <CheckoutSummaryRow label="Network" value="Base Sepolia" />
+                        <CheckoutSummaryRow
+                          label="Network"
+                          value={defaultSettlementNetwork.label}
+                        />
                       </div>
                       <PrimaryButton
                         type="button"
@@ -1833,6 +1863,10 @@ function TechnicalDetailsDisclosure({
 }) {
   if (details.length === 0) return null;
 
+  const networkValue =
+    details.find((detail) => detail.label === "network")?.value ??
+    defaultSettlementNetwork.id;
+
   return (
     <details className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
       <summary className="cursor-pointer text-xs font-semibold text-slate-600">
@@ -1844,6 +1878,8 @@ function TechnicalDetailsDisclosure({
           const value =
             detail.label === "transactionHash" || detail.label === "contractAddress"
               ? shortAddress(detail.value)
+              : detail.label === "network"
+                ? settlementNetworkLabel(detail.value)
               : detail.value;
 
           return (
@@ -1856,7 +1892,7 @@ function TechnicalDetailsDisclosure({
               </span>
               {isExplorerHash ? (
                 <a
-                  href={baseSepoliaTxUrl(detail.value)}
+                  href={transactionExplorerUrl(detail.value, networkValue)}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 font-mono font-semibold text-teal-700 hover:underline"
@@ -1906,8 +1942,10 @@ function ExpensesPanel({
             const method =
               technicalValue(expense.notes, "settlementMethod") ??
               "Manual split";
-            const network =
-              technicalValue(expense.notes, "network") ?? "Base Sepolia";
+            const network = settlementNetworkLabel(
+              technicalValue(expense.notes, "network") ??
+                defaultSettlementNetwork.id,
+            );
             const status =
               technicalValue(expense.notes, "paymentStatus") ??
               technicalValue(expense.notes, "checkoutStatus");
@@ -1998,10 +2036,7 @@ function SettlementHistoryPanel({
               </Badge>
               <Badge tone="teal">Method: Locus Checkout Demo</Badge>
               <Badge tone="blue">
-                Network:{" "}
-                {settlement.network === "base-sepolia"
-                  ? "Base Sepolia"
-                  : settlement.network}
+                Network: {settlementNetworkLabel(settlement.network)}
               </Badge>
             </div>
             <TechnicalDetailsDisclosure
@@ -2009,10 +2044,7 @@ function SettlementHistoryPanel({
                 { label: "transactionHash", value: settlement.tx_hash },
                 {
                   label: "network",
-                  value:
-                    settlement.network === "base-sepolia"
-                      ? "Base Sepolia"
-                      : settlement.network,
+                  value: settlement.network,
                 },
               ]}
             />

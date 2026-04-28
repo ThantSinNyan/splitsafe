@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { createDemoSeedState, demoUserId } from "@/lib/demo-data";
+import { defaultSettlementNetwork } from "@/lib/networks";
 import { makeId, nowIso, roundMoney } from "@/lib/utils";
 import type {
   AiMessage,
@@ -351,7 +352,7 @@ export function recordLocalSettlement(input: SettlementInput) {
     receiver_wallet: input.receiverWallet,
     amount: input.amount,
     tx_hash: input.txHash,
-    network: "Base Sepolia",
+    network: input.network ?? defaultSettlementNetwork.id,
     status: input.status,
     created_at: settledAt,
   };

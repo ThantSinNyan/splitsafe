@@ -98,7 +98,7 @@ create table public.settlements (
   receiver_wallet text not null,
   amount numeric not null,
   tx_hash text not null,
-  network text not null default 'base-sepolia',
+  network text not null default '0g-galileo',
   status text not null default 'mocked' check (status in ('confirmed', 'mocked')),
   created_at timestamptz not null default now()
 );

@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { WagmiProvider } from "wagmi";
 import { AuthProvider } from "@/components/auth-provider";
-import { baseSepolia, wagmiConfig } from "@/lib/wagmi";
+import { defaultSettlementNetwork, wagmiConfig } from "@/lib/wagmi";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
@@ -16,7 +16,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider
-          initialChain={baseSepolia}
+          initialChain={defaultSettlementNetwork.chain}
           theme={lightTheme({
             accentColor: "#0f766e",
             accentColorForeground: "#ffffff",
