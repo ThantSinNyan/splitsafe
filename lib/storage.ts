@@ -569,6 +569,10 @@ export async function recordSettlement(input: SettlementInput) {
   throwIfError(splitRequest.error);
   const split = normalizeSplit(splitRequest.data);
 
+  if (split.status === "paid") {
+    throw new Error("This balance is already settled.");
+  }
+
   const expenseRequest = await supabase
     .from("expenses")
     .select("*")

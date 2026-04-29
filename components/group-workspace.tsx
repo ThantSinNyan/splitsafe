@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   readContract,
   waitForTransactionReceipt,
@@ -386,6 +386,10 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   const [settlementAction, setSettlementAction] = useState<string | null>(null);
   const [demoUsdcBalance, setDemoUsdcBalance] = useState<string | null>(null);
   const [settlementRecipientWallet, setSettlementRecipientWallet] = useState("");
+  const [settlementSuccessNotice, setSettlementSuccessNotice] = useState<
+    string | null
+  >(null);
+  const settlementInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -645,14 +649,29 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   }
 
   function openSettlement(split: ExpenseSplit) {
-    const expense = expensesById.get(split.expense_id);
+    const latestSplit =
+      workspace?.splits.find((item) => item.id === split.id) ?? split;
 
-    setSettlementSplit(split);
+    if (latestSplit.status !== "unpaid") {
+      setSettlementSplit(null);
+      setSettlementRecipientWallet("");
+      setSettlementProof("");
+      setSettlementNotice(null);
+      setSettlementError(null);
+      setSettlementAction(null);
+      setSettlementSuccessNotice("This balance is already settled.");
+      return;
+    }
+
+    const expense = expensesById.get(latestSplit.expense_id);
+
+    setSettlementSplit(latestSplit);
     setSettlementRecipientWallet(expense?.paid_by_profile?.wallet_address ?? "");
     setSettlementProof("");
     setSettlementNotice(null);
     setSettlementError(null);
     setSettlementAction(null);
+    setSettlementSuccessNotice(null);
   }
 
   function handleSettle(split: ExpenseSplit) {
@@ -666,6 +685,17 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     if (myDebts.length === 0) return;
 
     openSettlement(myDebts[0]);
+  }
+
+  function ensureSplitCanBePaid(split: ExpenseSplit) {
+    const latestSplit =
+      workspace?.splits.find((item) => item.id === split.id) ?? split;
+
+    if (latestSplit.status !== "unpaid") {
+      throw new Error("This balance is already settled.");
+    }
+
+    return latestSplit;
   }
 
   async function handleAddDemoUsdcToWallet() {
@@ -745,6 +775,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     senderWallet: string,
     recipientWallet: string,
   ) {
+    const payableSplit = ensureSplitCanBePaid(split);
     const receiverWallet = recipientWallet.trim();
 
     if (!demoUSDC.address) {
@@ -769,7 +800,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         tokenAddress: demoUSDC.address,
         expectedSender: senderWallet,
         expectedRecipient: receiverWallet,
-        expectedAmount: String(split.amount_owed),
+        expectedAmount: String(payableSplit.amount_owed),
         decimals: demoUSDC.decimals,
       }),
     });
@@ -791,20 +822,30 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     }
 
     await recordSettlement({
-      splitId: split.id,
+      splitId: payableSplit.id,
       senderWallet,
       receiverWallet,
-      amount: split.amount_owed,
+      amount: payableSplit.amount_owed,
       txHash,
       status: "settled",
       network: defaultSettlementNetwork.id,
     });
 
-    setSettlementNotice("Verified on 0G Galileo Testnet.");
     await refreshWorkspace();
+    setSettlementSplit(null);
+    setSettlementRecipientWallet("");
+    setSettlementProof("");
+    setSettlementNotice(null);
+    setSettlementError(null);
+    setSettlementSuccessNotice(
+      "Payment verified on 0G Galileo. This balance is settled.",
+    );
   }
 
   async function handleSendDemoUsdc(split: ExpenseSplit) {
+    if (settlementInFlightRef.current) return;
+    settlementInFlightRef.current = true;
+
     const receiverWallet = settlementRecipientWallet.trim();
 
     setSettlementAction("send");
@@ -812,6 +853,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     setSettlementNotice(null);
 
     try {
+      const payableSplit = ensureSplitCanBePaid(split);
+
       if (!demoUSDC.address) {
         throw new Error("Demo USDC contract is not configured.");
       }
@@ -828,7 +871,10 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         address: demoUSDC.address,
         abi: demoUSDCAbi,
         functionName: "transfer",
-        args: [receiverWallet as Address, parseDemoUSDCAmount(split.amount_owed)],
+        args: [
+          receiverWallet as Address,
+          parseDemoUSDCAmount(payableSplit.amount_owed),
+        ],
         chainId: defaultSettlementNetwork.chainId,
       });
 
@@ -839,7 +885,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
 
       setSettlementProof(hash);
       await verifyAndRecordSettlement(
-        split,
+        payableSplit,
         hash,
         address,
         settlementRecipientWallet,
@@ -848,20 +894,26 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     } catch (caught) {
       setSettlementError(settlementErrorMessage(caught));
     } finally {
+      settlementInFlightRef.current = false;
       setSettlementAction(null);
     }
   }
 
   async function handleVerifyManualProof(split: ExpenseSplit) {
+    if (settlementInFlightRef.current) return;
+    settlementInFlightRef.current = true;
+
     setSettlementAction("verify");
     setSettlementError(null);
     setSettlementNotice(null);
 
     try {
+      const payableSplit = ensureSplitCanBePaid(split);
+
       if (!address) throw new Error("Connect the wallet that paid with dUSDC.");
       const txHash = normalizeTxHashInput(settlementProof);
       await verifyAndRecordSettlement(
-        split,
+        payableSplit,
         txHash,
         address,
         settlementRecipientWallet,
@@ -869,11 +921,15 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     } catch (caught) {
       setSettlementError(settlementErrorMessage(caught));
     } finally {
+      settlementInFlightRef.current = false;
       setSettlementAction(null);
     }
   }
 
   async function handleUseMockProof(split: ExpenseSplit) {
+    if (settlementInFlightRef.current) return;
+    settlementInFlightRef.current = true;
+
     const expense = expensesById.get(split.expense_id);
     const receiverWallet =
       settlementRecipientWallet.trim() ||
@@ -885,25 +941,33 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     setSettlementNotice(null);
 
     try {
+      const payableSplit = ensureSplitCanBePaid(split);
+
       if (!isDemoUser || isDemoUSDCConfigured()) {
         throw new Error("Mock dUSDC proof is only available for demo mode.");
       }
 
       await recordSettlement({
-        splitId: split.id,
+        splitId: payableSplit.id,
         senderWallet: address ?? "mock-wallet",
         receiverWallet,
-        amount: split.amount_owed,
+        amount: payableSplit.amount_owed,
         txHash: `mock-dusdc-proof-${Date.now()}`,
         status: "settled",
         network: defaultSettlementNetwork.id,
       });
 
-      setSettlementNotice("Mock dUSDC proof recorded for demo only.");
       await refreshWorkspace();
+      setSettlementSplit(null);
+      setSettlementRecipientWallet("");
+      setSettlementProof("");
+      setSettlementNotice(null);
+      setSettlementError(null);
+      setSettlementSuccessNotice("Mock dUSDC proof recorded. This balance is settled.");
     } catch (caught) {
       setSettlementError(settlementErrorMessage(caught));
     } finally {
+      settlementInFlightRef.current = false;
       setSettlementAction(null);
     }
   }
@@ -1089,6 +1153,12 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         {error ? (
           <div className="rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm leading-6 text-rose-800 shadow-sm">
             {error}
+          </div>
+        ) : null}
+
+        {settlementSuccessNotice ? (
+          <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-5 text-sm font-semibold leading-6 text-emerald-800 shadow-sm">
+            {settlementSuccessNotice}
           </div>
         ) : null}
 
@@ -1283,6 +1353,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               setSettlementNotice(null);
               setSettlementError(null);
               setSettlementAction(null);
+              setSettlementSuccessNotice(null);
             }}
             recipientWallet={settlementRecipientWallet}
             onRecipientWalletChange={setSettlementRecipientWallet}

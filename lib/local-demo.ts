@@ -371,6 +371,9 @@ export function recordLocalSettlement(input: SettlementInput) {
   const state = readState();
   const split = state.splits.find((item) => item.id === input.splitId);
   if (!split) throw new Error("Split not found in guest mode.");
+  if (split.status === "paid") {
+    throw new Error("This balance is already settled.");
+  }
 
   const expense = state.expenses.find((item) => item.id === split.expense_id);
   if (!expense) throw new Error("Expense not found in guest mode.");
