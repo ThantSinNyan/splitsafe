@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   Sparkles,
   TrendingUp,
+  UserMinus,
   Users,
   Wallet,
   XCircle,
@@ -62,6 +63,7 @@ import {
   getInvitePreview,
   getWorkspace,
   recordSettlement,
+  removeWorkspaceMember,
   saveAiMessage,
 } from "@/lib/storage";
 import {
@@ -128,32 +130,26 @@ type GroupTab = "overview" | "expenses" | "balances" | "ai" | "members";
 const groupTabs: Array<{
   id: GroupTab;
   label: string;
-  description: string;
 }> = [
   {
     id: "overview",
     label: "Overview",
-    description: "Budget, activity, and quick actions",
   },
   {
     id: "expenses",
     label: "Expenses",
-    description: "Add, scan, and review the ledger",
   },
   {
     id: "balances",
     label: "Balances",
-    description: "Who owes who and payment history",
   },
   {
     id: "ai",
     label: "AI",
-    description: "Copilot and Smart Settlement",
   },
   {
     id: "members",
     label: "Members",
-    description: "People, roles, and invites",
   },
 ];
 
@@ -324,6 +320,20 @@ function activeMembers(members: WorkspaceMember[]) {
   return members.filter((member) => member.status === "active");
 }
 
+function canRemoveMember(
+  currentMember: WorkspaceMember | null | undefined,
+  targetMember: WorkspaceMember,
+) {
+  if (!currentMember || currentMember.user_id === targetMember.user_id) {
+    return false;
+  }
+
+  if (currentMember.role === "owner") return true;
+  if (currentMember.role === "admin") return targetMember.role === "member";
+
+  return false;
+}
+
 function inviteUrl(inviteToken: string) {
   const origin =
     typeof window === "undefined"
@@ -370,6 +380,9 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [inviteEmailNotice, setInviteEmailNotice] = useState<string | null>(null);
   const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(null);
+  const [memberToRemove, setMemberToRemove] = useState<WorkspaceMember | null>(null);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  const [memberNotice, setMemberNotice] = useState<string | null>(null);
   const [aiQuestion, setAiQuestion] = useState("Who still needs to pay?");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiStatus>("idle");
@@ -408,12 +421,13 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
 
       const nextMembers = activeMembers(nextWorkspace?.members ?? []);
       if (nextMembers.length) {
+        const activeUserIds = new Set(nextMembers.map((member) => member.user_id));
         setExpenseForm((current) => ({
           ...current,
-          paid_by: current.paid_by || user.id,
+          paid_by: activeUserIds.has(current.paid_by) ? current.paid_by : user.id,
           split_user_ids:
             current.split_user_ids.length > 0
-              ? current.split_user_ids
+              ? current.split_user_ids.filter((userId) => activeUserIds.has(userId))
               : nextMembers.map((member) => member.user_id),
         }));
       }
@@ -552,9 +566,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       const link = inviteUrl(invite.invite_token);
       setInviteLink(link);
       setInviteNotice("Invite created. Share this link or send by email.");
-      setInviteEmailNotice(
-        "Email delivery is not configured yet. Copy the invite link to share manually.",
-      );
+      setInviteEmailNotice("Copy invite link to share manually.");
       setInviteForm(initialInviteForm);
       await refreshWorkspace();
     } catch (caught) {
@@ -583,6 +595,23 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       setError(caught instanceof Error ? caught.message : "Could not cancel invite");
     } finally {
       setCancellingInviteId(null);
+    }
+  }
+
+  async function handleRemoveMember(member: WorkspaceMember) {
+    setRemovingMemberId(member.id);
+    setError(null);
+    setMemberNotice(null);
+
+    try {
+      await removeWorkspaceMember(member.id);
+      setMemberToRemove(null);
+      setMemberNotice("Member removed.");
+      await refreshWorkspace();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not remove member");
+    } finally {
+      setRemovingMemberId(null);
     }
   }
 
@@ -1101,7 +1130,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       : 0;
 
   return (
-    <AppShell eyebrow={`${room.name} group`}>
+    <AppShell>
       <div className="space-y-8">
         <header className="relative overflow-hidden rounded-[34px] border border-white/80 bg-white/82 p-7 shadow-[0_30px_90px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-8">
           <div className="absolute -right-24 -top-28 size-72 rounded-full bg-teal-300/20 blur-3xl" />
@@ -1129,22 +1158,59 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
                 {room.description || "No description yet."}
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:w-[420px]">
+            <div className="space-y-3 xl:w-[520px]">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-[22px] border border-slate-200 bg-white/85 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    Budget status
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">
+                    {metrics.remaining < 0 ? "Over budget" : "On budget"}
+                  </p>
+                </div>
               <div className="rounded-[24px] border border-slate-200 bg-white/85 p-4 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
                   Unpaid balances
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                <p className="mt-2 text-lg font-semibold text-slate-950">
                   {formatMoney(metrics.pendingAmount, room.currency)}
                 </p>
               </div>
-              <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/90 p-4 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-600">
+              <div className="rounded-[22px] border border-emerald-200 bg-emerald-50/90 p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-600">
                   Your role
                 </p>
-                <p className="mt-2 text-2xl font-semibold capitalize text-emerald-900">
+                <p className="mt-2 text-lg font-semibold capitalize text-emerald-900">
                   {workspace.currentMember?.role ?? "member"}
                 </p>
+              </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-4">
+                <HeaderActionButton
+                  icon={Plus}
+                  label="Add expense"
+                  onClick={() => setActiveTab("expenses")}
+                  primary
+                />
+                <HeaderActionButton
+                  icon={ScanLine}
+                  label="Scan receipt"
+                  onClick={() => {
+                    setActiveTab("expenses");
+                    setScanOpen(true);
+                  }}
+                />
+                <HeaderActionButton
+                  icon={Send}
+                  label="Settle"
+                  onClick={() => setActiveTab("balances")}
+                />
+                <HeaderActionButton
+                  icon={MailPlus}
+                  label="Invite"
+                  onClick={() => setActiveTab("members")}
+                  disabled={!canManage}
+                />
               </div>
             </div>
           </div>
@@ -1162,7 +1228,6 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           </div>
         ) : null}
 
-        <FlowSteps />
         <GroupTabs activeTab={activeTab} onChange={setActiveTab} />
 
         {activeTab === "overview" ? (
@@ -1204,22 +1269,6 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
                   metrics={metrics}
                   currency={room.currency}
                 />
-                <AiSummaryCard
-                  groupName={room.name}
-                  budget={room.total_budget}
-                  currency={room.currency}
-                  totalSpent={metrics.totalSpent}
-                  remaining={metrics.remaining}
-                  unpaidCount={metrics.unpaidCount}
-                  topCategory={metrics.topCategory}
-                />
-                <AiInsightCards
-                  metrics={metrics}
-                  currency={room.currency}
-                  onAskAi={openAiWithQuestion}
-                  onSettle={() => setActiveTab("balances")}
-                  onAddExpense={() => setActiveTab("expenses")}
-                />
               </div>
               <div className="space-y-6">
                 <QuickActionsPanel
@@ -1247,6 +1296,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           <MembersPanel
             members={members}
             invites={invites}
+            currentMember={workspace.currentMember}
             canManage={canManage}
             inviteForm={inviteForm}
             inviteSaving={inviteSaving}
@@ -1254,10 +1304,13 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
             inviteNotice={inviteNotice}
             inviteEmailNotice={inviteEmailNotice}
             cancellingInviteId={cancellingInviteId}
+            memberNotice={memberNotice}
+            removingMemberId={removingMemberId}
             setInviteForm={setInviteForm}
             onInvite={handleInvite}
             onCopyInvite={handleCopyInvite}
             onCancelInvite={handleCancelInvite}
+            onRequestRemoveMember={setMemberToRemove}
           />
         ) : null}
 
@@ -1332,6 +1385,16 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           onClose={() => setScanOpen(false)}
           onUseResult={handleUseScanResult}
         />
+        {memberToRemove ? (
+          <RemoveMemberDialog
+            member={memberToRemove}
+            removing={removingMemberId === memberToRemove.id}
+            onClose={() => {
+              if (!removingMemberId) setMemberToRemove(null);
+            }}
+            onConfirm={() => void handleRemoveMember(memberToRemove)}
+          />
+        ) : null}
         {settlementSplit ? (
           <DemoUsdcSettlementModal
             split={settlementSplit}
@@ -1374,31 +1437,34 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   );
 }
 
-function FlowSteps() {
-  const steps = [
-    "Create group",
-    "Add or scan expense",
-    "See who owes",
-    "Ask AI",
-    "Settle payment",
-  ];
-
+function HeaderActionButton({
+  icon: Icon,
+  label,
+  onClick,
+  primary,
+  disabled,
+}: {
+  icon: typeof Plus;
+  label: string;
+  onClick: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+}) {
   return (
-    <div className="rounded-[28px] border border-slate-200 bg-white/85 p-4 shadow-sm">
-      <div className="grid gap-3 md:grid-cols-5">
-        {steps.map((step, index) => (
-          <div
-            key={step}
-            className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3"
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-xs font-semibold text-white">
-              {index + 1}
-            </span>
-            <span className="text-sm font-semibold text-slate-700">{step}</span>
-          </div>
-        ))}
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "inline-flex h-10 items-center justify-center gap-2 rounded-2xl border px-3 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-55",
+        primary
+          ? "border-slate-950 bg-slate-950 text-white hover:bg-slate-800"
+          : "border-slate-200 bg-white text-slate-700 hover:border-teal-200 hover:text-teal-800",
+      )}
+    >
+      <Icon className="size-4" aria-hidden="true" />
+      {label}
+    </button>
   );
 }
 
@@ -1410,28 +1476,22 @@ function GroupTabs({
   onChange: (tab: GroupTab) => void;
 }) {
   return (
-    <div className="grid gap-2 rounded-[28px] border border-slate-200 bg-white p-2 shadow-sm md:grid-cols-5">
+    <div className="overflow-x-auto rounded-[22px] border border-slate-200 bg-white p-1.5 shadow-sm">
+      <div className="grid min-w-max grid-cols-5 gap-1 md:min-w-0">
       {groupTabs.map((tab) => (
         <button
           key={tab.id}
           type="button"
           onClick={() => onChange(tab.id)}
           className={cn(
-            "rounded-2xl px-4 py-3 text-left hover:bg-slate-50",
+            "h-10 rounded-2xl px-4 text-center text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-950",
             activeTab === tab.id && "bg-slate-950 text-white hover:bg-slate-950",
           )}
         >
-          <span className="block text-sm font-semibold">{tab.label}</span>
-          <span
-            className={cn(
-              "mt-1 block text-xs leading-5 text-slate-500",
-              activeTab === tab.id && "text-slate-300",
-            )}
-          >
-            {tab.description}
-          </span>
+          {tab.label}
         </button>
       ))}
+      </div>
     </div>
   );
 }
@@ -1610,42 +1670,6 @@ function SpendingOverviewCard({
   );
 }
 
-function AiSummaryCard({
-  groupName,
-  budget,
-  currency,
-  totalSpent,
-  remaining,
-  unpaidCount,
-  topCategory,
-}: {
-  groupName: string;
-  budget: number;
-  currency: string;
-  totalSpent: number;
-  remaining: number;
-  unpaidCount: number;
-  topCategory: string;
-}) {
-  return (
-    <SectionCard elevated>
-      <SectionHeader
-        eyebrow="AI summary"
-        title="Group snapshot"
-        description="A plain-language budget brief without opening the chat."
-      />
-      <p className="mt-5 rounded-[24px] border border-teal-100 bg-teal-50/70 p-5 text-sm leading-7 text-slate-700">
-        {groupName} has spent {formatMoney(totalSpent, currency)} out of{" "}
-        {formatMoney(budget, currency)}. Top spending is {topCategory}.{" "}
-        {unpaidCount} unpaid balance{unpaidCount === 1 ? "" : "s"} remain.{" "}
-        {remaining < 0
-          ? `The group is over budget by ${formatMoney(Math.abs(remaining), currency)}.`
-          : `${formatMoney(remaining, currency)} remains.`}
-      </p>
-    </SectionCard>
-  );
-}
-
 function AiInsightCards({
   metrics,
   currency,
@@ -1721,6 +1745,7 @@ function AiInsightCards({
 function MembersPanel({
   members,
   invites,
+  currentMember,
   canManage,
   inviteForm,
   inviteSaving,
@@ -1728,13 +1753,17 @@ function MembersPanel({
   inviteNotice,
   inviteEmailNotice,
   cancellingInviteId,
+  memberNotice,
+  removingMemberId,
   setInviteForm,
   onInvite,
   onCopyInvite,
   onCancelInvite,
+  onRequestRemoveMember,
 }: {
   members: WorkspaceMember[];
   invites: WorkspaceData["invites"];
+  currentMember: WorkspaceMember | null;
   canManage: boolean;
   inviteForm: CreateInviteInput;
   inviteSaving: boolean;
@@ -1742,10 +1771,13 @@ function MembersPanel({
   inviteNotice: string | null;
   inviteEmailNotice: string | null;
   cancellingInviteId: string | null;
+  memberNotice: string | null;
+  removingMemberId: string | null;
   setInviteForm: React.Dispatch<React.SetStateAction<CreateInviteInput>>;
   onInvite: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
   onCopyInvite: (inviteToken: string) => Promise<void>;
   onCancelInvite: (inviteId: string) => Promise<void>;
+  onRequestRemoveMember: (member: WorkspaceMember) => void;
 }) {
   const groupedInvites = {
     pending: invites.filter((invite) => invite.status === "pending"),
@@ -1828,27 +1860,26 @@ function MembersPanel({
           </div>
         )}
 
-        <div className="mt-6 space-y-3">
+        {memberNotice ? (
+          <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+            {memberNotice}
+          </div>
+        ) : null}
+
+        <div className="mt-6 flex items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-slate-950">Members</p>
+          <Badge tone="slate">{members.length} active</Badge>
+        </div>
+
+        <div className="mt-3 space-y-3">
           {members.map((member) => (
-            <div
+            <MemberRow
               key={member.id}
-              className="flex items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50/70 p-3"
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <AvatarToken name={profileLabel(member.profile)} />
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-slate-950">
-                    {profileLabel(member.profile)}
-                  </p>
-                  <p className="mt-1 truncate text-xs text-slate-500">
-                    {member.profile?.email ?? "No email"}
-                  </p>
-                </div>
-              </div>
-              <Badge tone={member.role === "owner" ? "teal" : "slate"}>
-                {member.role}
-              </Badge>
-            </div>
+              member={member}
+              canRemove={canRemoveMember(currentMember, member)}
+              removing={removingMemberId === member.id}
+              onRemove={() => onRequestRemoveMember(member)}
+            />
           ))}
         </div>
       </SectionCard>
@@ -1856,14 +1887,14 @@ function MembersPanel({
       <SectionCard elevated>
         <SectionHeader
           eyebrow="Invites"
-          title="Pending invites"
-          description="Copy invite links manually until email delivery is configured."
+          title="Invites"
+          description="Copy invite link to share manually."
         />
 
         <div className="mt-6 space-y-6">
           <InviteStatusList
             title="Pending invites"
-            empty="No pending invites."
+            empty="No pending invites"
             invites={groupedInvites.pending}
             canManage={canManage}
             cancellingInviteId={cancellingInviteId}
@@ -1872,7 +1903,7 @@ function MembersPanel({
           />
           <InviteStatusList
             title="Accepted invites"
-            empty="No accepted invites yet."
+            empty="No accepted invites yet"
             invites={groupedInvites.accepted}
             canManage={canManage}
             cancellingInviteId={cancellingInviteId}
@@ -1881,7 +1912,7 @@ function MembersPanel({
           />
           <InviteStatusList
             title="Expired invites"
-            empty="No expired invites."
+            empty="No expired invites"
             invites={groupedInvites.expired}
             canManage={canManage}
             cancellingInviteId={cancellingInviteId}
@@ -1890,6 +1921,107 @@ function MembersPanel({
           />
         </div>
       </SectionCard>
+    </div>
+  );
+}
+
+function MemberRow({
+  member,
+  canRemove,
+  removing,
+  onRemove,
+}: {
+  member: WorkspaceMember;
+  canRemove: boolean;
+  removing: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="grid gap-3 rounded-[22px] border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+      <div className="flex min-w-0 items-center gap-3">
+        <AvatarToken name={profileLabel(member.profile)} />
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-slate-950">
+            {profileLabel(member.profile)}
+          </p>
+          <p className="mt-1 truncate text-xs text-slate-500">
+            {member.profile?.email ?? "No email"}
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        <Badge tone={member.role === "owner" ? "teal" : "slate"}>
+          {member.role}
+        </Badge>
+        <Badge tone="green">{member.status}</Badge>
+        {canRemove ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={removing}
+            className="inline-flex h-9 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {removing ? (
+              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <UserMinus className="size-3.5" aria-hidden="true" />
+            )}
+            Remove member
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function RemoveMemberDialog({
+  member,
+  removing,
+  onClose,
+  onConfirm,
+}: {
+  member: WorkspaceMember;
+  removing: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:items-center sm:p-6">
+      <div className="w-full max-w-md rounded-[28px] border border-white/80 bg-white p-5 shadow-[0_30px_100px_rgba(15,23,42,0.28)] sm:p-6">
+        <div className="flex size-11 items-center justify-center rounded-2xl bg-rose-50 text-rose-700">
+          <UserMinus className="size-5" aria-hidden="true" />
+        </div>
+        <h2 className="mt-5 text-xl font-semibold tracking-tight text-slate-950">
+          Remove {profileLabel(member.profile)} from this group?
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          They will lose access to this group&apos;s expenses, balances, AI messages,
+          and payment history.
+        </p>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={removing}
+            className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={removing}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {removing ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <UserMinus className="size-4" aria-hidden="true" />
+            )}
+            Remove member
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2503,14 +2635,14 @@ function BalancesPanel({
       ) : null}
 
       <div className="mt-6 space-y-3">
-        {splits.length === 0 ? (
+        {unpaidSplits.length === 0 ? (
           <EmptyState
             icon={Landmark}
-            title="No balances yet"
-            body="Add an expense split between multiple members to create balances."
+            title="No unpaid balances"
+            body="Everyone is settled."
           />
         ) : (
-          splits.map((split) => {
+          unpaidSplits.map((split) => {
             const expense = expensesById.get(split.expense_id);
             const settlement = settlementsBySplitId.get(split.id);
             const splitNetwork = settlement?.network ?? defaultSettlementNetwork.id;
@@ -2710,7 +2842,7 @@ function DemoUsdcSettlementModal({
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-5 sm:px-6">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="teal">Testnet only</Badge>
+              <Badge tone="teal">0G Galileo</Badge>
               <Badge tone={tokenConfigured ? "green" : "amber"}>
                 {tokenConfigured ? "dUSDC ready" : "Contract needed"}
               </Badge>
@@ -2754,7 +2886,7 @@ function DemoUsdcSettlementModal({
                 </div>
               </div>
               <p className="mt-3 text-xs leading-5 text-teal-800">
-                dUSDC is fake testnet money with no real value.
+                Testnet demo token.
               </p>
             </div>
 
@@ -3105,8 +3237,8 @@ function ExpensesPanel({
         {expenses.length === 0 ? (
           <EmptyState
             icon={ReceiptText}
-            title="No expenses"
-            body="Add the first receipt to start tracking group spending."
+            title="No expenses yet"
+            body="Add an expense or scan a receipt."
           />
         ) : (
           expenses.map((expense) => {

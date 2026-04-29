@@ -22,6 +22,7 @@ drop function if exists public.can_view_profile(uuid);
 drop function if exists public.current_user_email();
 drop function if exists public.invite_preview(text);
 drop function if exists public.is_workspace_member(uuid);
+drop function if exists public.remove_workspace_member(uuid);
 drop function if exists public.workspace_role(uuid);
 drop function if exists public.handle_new_user();
 
@@ -333,6 +334,56 @@ begin
 end;
 $$;
 
+create or replace function public.remove_workspace_member(target_member_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_member public.workspace_members%rowtype;
+  actor_role text;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select *
+  into target_member
+  from public.workspace_members
+  where id = target_member_id
+    and status = 'active'
+  limit 1;
+
+  if target_member.id is null then
+    raise exception 'Member not found';
+  end if;
+
+  actor_role := public.workspace_role(target_member.workspace_id);
+
+  if actor_role is null then
+    raise exception 'You are not a member of this group';
+  end if;
+
+  if target_member.user_id = auth.uid() then
+    raise exception 'You cannot remove yourself';
+  end if;
+
+  if actor_role = 'admin' and target_member.role <> 'member' then
+    raise exception 'Admins can only remove members';
+  end if;
+
+  if actor_role not in ('owner', 'admin') then
+    raise exception 'Only owners and admins can remove members';
+  end if;
+
+  delete from public.workspace_members
+  where id = target_member.id;
+
+  return target_member.workspace_id;
+end;
+$$;
+
 create or replace function public.invite_preview(target_invite_token text)
 returns table (
   workspace_id uuid,
@@ -429,7 +480,7 @@ create policy "owner and admin can update members"
 
 create policy "owner and admin can remove members"
   on public.workspace_members for delete to authenticated
-  using (public.can_manage_workspace(workspace_id));
+  using (false);
 
 create policy "members and invited users can read invites"
   on public.invites for select to authenticated
@@ -522,3 +573,4 @@ create policy "members can create ai messages"
 grant execute on function public.accept_invite(text) to authenticated;
 grant execute on function public.cancel_invite(uuid) to authenticated;
 grant execute on function public.invite_preview(text) to anon, authenticated;
+grant execute on function public.remove_workspace_member(uuid) to authenticated;

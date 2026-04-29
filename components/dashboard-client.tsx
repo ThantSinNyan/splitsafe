@@ -13,8 +13,6 @@ import {
   Plus,
   ReceiptText,
   Sparkles,
-  Activity,
-  WalletCards,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { AppShell } from "@/components/app-shell";
@@ -47,21 +45,15 @@ const initialForm: CreateWorkspaceInput = {
 };
 
 type DashboardStats = {
-  totalSpent: number;
-  totalUnpaid: number;
   pendingSettlements: number;
   pendingInvites: number;
-  recentActivity: number;
   youOwe: number;
   owedToYou: number;
 };
 
 const emptyStats: DashboardStats = {
-  totalSpent: 0,
-  totalUnpaid: 0,
   pendingSettlements: 0,
   pendingInvites: 0,
-  recentActivity: 0,
   youOwe: 0,
   owedToYou: 0,
 };
@@ -187,8 +179,8 @@ export function DashboardClient() {
                 My groups
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-                Welcome, {displayName}. Create private budget groups, invite
-                members by email, and keep every group isolated to its members.
+                Welcome, {displayName}. Add expenses, split bills, and settle
+                balances with the groups you trust.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row xl:flex-col">
@@ -241,13 +233,13 @@ export function DashboardClient() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <StatCard
-            label="Total group balance"
-            value={formatMoney(stats.totalUnpaid, "USD")}
-            detail="Across active groups"
-            icon={WalletCards}
-            tone="teal"
+            label="My groups"
+            value={workspaces.length.toString()}
+            detail="Groups you can open"
+            icon={Database}
+            tone="slate"
           />
           <StatCard
             label="You owe"
@@ -264,9 +256,9 @@ export function DashboardClient() {
             tone="green"
           />
           <StatCard
-            label="Who owes who"
+            label="Pending settlements"
             value={stats.pendingSettlements.toString()}
-            detail="Open payback paths"
+            detail="Open balances"
             icon={Landmark}
             tone="amber"
           />
@@ -276,13 +268,6 @@ export function DashboardClient() {
             detail="Waiting for members"
             icon={MailPlus}
             tone="blue"
-          />
-          <StatCard
-            label="Recent expenses"
-            value={stats.recentActivity.toString()}
-            detail="Expenses and payment records"
-            icon={Activity}
-            tone="slate"
           />
         </section>
 
@@ -416,7 +401,7 @@ export function DashboardClient() {
                 <EmptyState
                   icon={Database}
                   title="No groups yet"
-                  body="Create a group or start with a ready-made starter group."
+                  body="Create a group or use a starter group."
                   action={
                     <button
                       type="button"

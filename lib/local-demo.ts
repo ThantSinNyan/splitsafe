@@ -327,6 +327,34 @@ export function cancelLocalInvite(inviteId: string) {
   return invite.workspace_id;
 }
 
+export function removeLocalWorkspaceMember(memberId: string) {
+  const state = readState();
+  const member = state.members.find((item) => item.id === memberId);
+  if (!member) throw new Error("Member not found in guest mode.");
+
+  const currentMember = state.members.find(
+    (item) =>
+      item.workspace_id === member.workspace_id &&
+      item.user_id === localDemoUserId &&
+      item.status === "active",
+  );
+
+  if (!currentMember) throw new Error("You are not a member of this group.");
+  if (member.user_id === localDemoUserId) {
+    throw new Error("You cannot remove yourself.");
+  }
+  if (currentMember.role === "admin" && member.role !== "member") {
+    throw new Error("Admins can only remove members.");
+  }
+  if (currentMember.role !== "owner" && currentMember.role !== "admin") {
+    throw new Error("Only owners and admins can remove members.");
+  }
+
+  state.members = state.members.filter((item) => item.id !== member.id);
+  writeState(state);
+  return member.workspace_id;
+}
+
 export function addLocalExpense(
   workspaceId: string,
   input: CreateExpenseInput,

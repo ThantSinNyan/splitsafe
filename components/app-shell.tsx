@@ -144,8 +144,8 @@ export function AppShell({
                 {eyebrow ?? "Private groups"}
               </p>
               <p className="mt-2 text-xs leading-5 text-slate-500">
-                Create a group, scan expenses, ask AI, and settle when everyone
-                is ready.
+                Create groups, split expenses, invite people, and settle
+                balances.
               </p>
             </div>
           </div>

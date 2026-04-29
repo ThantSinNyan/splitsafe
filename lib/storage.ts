@@ -12,6 +12,7 @@ import {
   getLocalWorkspace,
   isLocalDemoMode,
   listLocalWorkspaces,
+  removeLocalWorkspaceMember,
   recordLocalSettlement,
   resetLocalDemoData,
   saveLocalAiMessage,
@@ -504,6 +505,19 @@ export async function cancelInvite(inviteId: string) {
   const supabase = requireSupabaseClient();
   const { data, error } = await supabase.rpc("cancel_invite", {
     target_invite_id: inviteId,
+  });
+
+  throwIfError(error);
+  return String(data);
+}
+
+export async function removeWorkspaceMember(memberId: string) {
+  if (isLocalDemoMode()) return removeLocalWorkspaceMember(memberId);
+
+  await getCurrentUser();
+  const supabase = requireSupabaseClient();
+  const { data, error } = await supabase.rpc("remove_workspace_member", {
+    target_member_id: memberId,
   });
 
   throwIfError(error);
