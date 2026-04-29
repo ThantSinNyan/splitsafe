@@ -137,7 +137,7 @@ export function getLocalDemoProfile() {
     name: "Alex Carter",
     email: "alex@splitsafe.app",
     avatar_url: null,
-    wallet_address: null,
+    wallet_address: "0x1111111111111111111111111111111111111111",
     created_at: nowIso(),
   };
 }

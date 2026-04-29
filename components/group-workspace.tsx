@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { waitForTransactionReceipt } from "@wagmi/core";
+import {
+  readContract,
+  waitForTransactionReceipt,
+  writeContract,
+} from "@wagmi/core";
 import {
   ArrowLeft,
   ArrowRight,
@@ -27,11 +31,10 @@ import {
   Wallet,
   XCircle,
 } from "lucide-react";
-import { isAddress, parseEther, type Address, type Hash } from "viem";
+import { isAddress, type Address, type Hash } from "viem";
 import {
   useAccount,
   useChainId,
-  useSendTransaction,
   useSwitchChain,
 } from "wagmi";
 import { useAuth } from "@/components/auth-provider";
@@ -63,10 +66,16 @@ import {
 } from "@/lib/storage";
 import {
   defaultSettlementNetwork,
-  getSettlementNetworkByChainId,
   settlementNetworkLabel,
   settlementNetworkTxUrl,
 } from "@/lib/networks";
+import {
+  demoUSDC,
+  demoUSDCAbi,
+  formatDemoUSDCAmount,
+  isDemoUSDCConfigured,
+  parseDemoUSDCAmount,
+} from "@/lib/tokens";
 import { wagmiConfig } from "@/lib/wagmi";
 import {
   cn,
@@ -88,6 +97,10 @@ import type {
   WorkspaceMember,
 } from "@/types/splitsafe";
 import type { SlipScanResult } from "@/types/slip-scan";
+
+type EthereumProvider = {
+  request: (args: { method: string; params?: unknown }) => Promise<unknown>;
+};
 
 const expenseCategories = [
   "food",
@@ -241,8 +254,16 @@ function paymentStatusTone(status?: string | null): "green" | "amber" | "rose" |
   const normalized = status?.toLowerCase();
 
   if (normalized === "paid" || normalized === "confirmed") return "green";
+  if (normalized === "verified" || normalized === "settled") return "green";
   if (normalized === "failed") return "rose";
-  if (normalized === "pending" || normalized === "mock_checkout_created") return "amber";
+  if (normalized === "rejected") return "rose";
+  if (
+    normalized === "pending" ||
+    normalized === "mock_checkout_created" ||
+    normalized === "instructions_shown" ||
+    normalized === "proof_submitted" ||
+    normalized === "verifying"
+  ) return "amber";
 
   return "slate";
 }
@@ -254,21 +275,45 @@ function paymentStatusLabel(status?: string | null) {
   if (normalized === "paid" || normalized === "confirmed") return "Paid";
   if (normalized === "pending" || normalized === "mock_checkout_created") return "Ready";
   if (normalized === "mocked") return "Recorded";
+  if (normalized === "settled" || normalized === "verified") return "Settled";
+  if (normalized === "proof_submitted") return "Proof submitted";
+  if (normalized === "instructions_shown") return "Instructions shown";
+  if (normalized === "verifying") return "Verifying";
+  if (normalized === "rejected") return "Rejected";
   if (normalized === "failed") return "Needs review";
 
   return normalized.replaceAll("_", " ");
 }
 
-function transactionExplorerUrl(hash: string, network?: string | null) {
-  return settlementNetworkTxUrl(hash, network);
+function normalizeTxHashInput(value: string) {
+  return value.match(/0x[a-fA-F0-9]{64}/)?.[0] ?? value.trim();
 }
 
-function mockHash() {
-  const body = Array.from({ length: 64 }, () =>
-    Math.floor(Math.random() * 16).toString(16),
-  ).join("");
+function isTxHash(value?: string | null) {
+  return Boolean(value?.match(/^0x[a-fA-F0-9]{64}$/));
+}
 
-  return `0x${body}`;
+function settlementErrorMessage(caught: unknown) {
+  const message = caught instanceof Error ? caught.message : String(caught);
+  const lowered = message.toLowerCase();
+
+  if (
+    lowered.includes("user rejected") ||
+    lowered.includes("user denied") ||
+    lowered.includes("rejected the request")
+  ) {
+    return "Transaction cancelled.";
+  }
+
+  if (lowered.includes("insufficient funds") || lowered.includes("gas")) {
+    return "You need 0G testnet tokens for gas. Get them from the 0G faucet.";
+  }
+
+  return message || "Settlement failed.";
+}
+
+function transactionExplorerUrl(hash: string, network?: string | null) {
+  return settlementNetworkTxUrl(hash, network);
 }
 
 function userName(userId: string, members: WorkspaceMember[]) {
@@ -307,11 +352,10 @@ function inviteStatusTone(status: Invite["status"]) {
 
 export function GroupWorkspace({ groupId }: { groupId: string }) {
   const router = useRouter();
-  const { loading: authLoading, user } = useAuth();
+  const { isDemoUser, loading: authLoading, user } = useAuth();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChainAsync } = useSwitchChain();
-  const { sendTransactionAsync } = useSendTransaction();
 
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -322,7 +366,6 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     useState<CreateExpenseInput>(initialExpenseForm);
   const [inviteSaving, setInviteSaving] = useState(false);
   const [expenseSaving, setExpenseSaving] = useState(false);
-  const [settlingId, setSettlingId] = useState<string | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteNotice, setInviteNotice] = useState<string | null>(null);
   const [inviteEmailNotice, setInviteEmailNotice] = useState<string | null>(null);
@@ -334,6 +377,14 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   const [scanNotice, setScanNotice] = useState<string | null>(null);
   const [lastScanResult, setLastScanResult] = useState<SlipScanResult | null>(null);
   const [activeTab, setActiveTab] = useState<GroupTab>("overview");
+  const [settlementSplit, setSettlementSplit] = useState<ExpenseSplit | null>(
+    null,
+  );
+  const [settlementProof, setSettlementProof] = useState("");
+  const [settlementNotice, setSettlementNotice] = useState<string | null>(null);
+  const [settlementError, setSettlementError] = useState<string | null>(null);
+  const [settlementAction, setSettlementAction] = useState<string | null>(null);
+  const [demoUsdcBalance, setDemoUsdcBalance] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -385,6 +436,36 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     () => new Map((workspace?.expenses ?? []).map((expense) => [expense.id, expense])),
     [workspace?.expenses],
   );
+
+  const settlementExpense = settlementSplit
+    ? expensesById.get(settlementSplit.expense_id) ?? null
+    : null;
+
+  const loadDemoUsdcBalance = useCallback(async () => {
+    if (!address || !demoUSDC.address) {
+      setDemoUsdcBalance(null);
+      return;
+    }
+
+    try {
+      const balance = await readContract(wagmiConfig, {
+        address: demoUSDC.address,
+        abi: demoUSDCAbi,
+        functionName: "balanceOf",
+        args: [address],
+        chainId: defaultSettlementNetwork.chainId,
+      });
+
+      setDemoUsdcBalance(formatDemoUSDCAmount(balance));
+    } catch {
+      setDemoUsdcBalance(null);
+    }
+  }, [address]);
+
+  useEffect(() => {
+    if (!settlementSplit) return;
+    queueMicrotask(() => void loadDemoUsdcBalance());
+  }, [loadDemoUsdcBalance, settlementSplit]);
 
   const canManage =
     workspace?.currentMember?.role === "owner" ||
@@ -556,81 +637,258 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     setScanNotice("Expense auto-filled from slip. Please review before saving.");
   }
 
-  async function performSettlement(split: ExpenseSplit) {
-    const expense = expensesById.get(split.expense_id);
-    if (!expense) throw new Error("Expense not found");
-
-    const receiverWallet = expense.paid_by_profile?.wallet_address ?? "";
-    let txHash = mockHash();
-    let settlementStatus: "confirmed" | "mocked" = "mocked";
-    let senderWallet = address ?? "mock-wallet";
-
-    const settlementNetwork =
-      getSettlementNetworkByChainId(chainId) ?? defaultSettlementNetwork;
-
-    if (isConnected && address && isAddress(receiverWallet)) {
-      if (chainId !== settlementNetwork.chainId) {
-        await switchChainAsync({ chainId: settlementNetwork.chainId });
-      }
-
-      const hash = await sendTransactionAsync({
-        to: receiverWallet as Address,
-        value: parseEther("0.000001"),
-      });
-
-      await waitForTransactionReceipt(wagmiConfig, {
-        chainId: settlementNetwork.chainId,
-        hash: hash as Hash,
-      });
-
-      txHash = hash;
-      senderWallet = address;
-      settlementStatus = "confirmed";
-    }
-
-    await recordSettlement({
-      splitId: split.id,
-      senderWallet,
-      receiverWallet: receiverWallet || "mock-recipient",
-      amount: split.amount_owed,
-      txHash,
-      status: settlementStatus,
-      network: settlementNetwork.id,
-    });
-  }
-
-  async function handleSettle(split: ExpenseSplit) {
-    setSettlingId(split.id);
-    setError(null);
-
-    try {
-      await performSettlement(split);
-      await refreshWorkspace();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Settlement failed");
-    } finally {
-      setSettlingId(null);
+  async function ensureDefaultSettlementNetwork() {
+    if (chainId !== defaultSettlementNetwork.chainId) {
+      await switchChainAsync({ chainId: defaultSettlementNetwork.chainId });
     }
   }
 
-  async function handleSettleAllMyDebts() {
+  function openSettlement(split: ExpenseSplit) {
+    setSettlementSplit(split);
+    setSettlementProof("");
+    setSettlementNotice(null);
+    setSettlementError(null);
+    setSettlementAction(null);
+  }
+
+  function handleSettle(split: ExpenseSplit) {
+    openSettlement(split);
+  }
+
+  function handleSettleAllMyDebts() {
     const myDebts = (workspace?.splits ?? []).filter(
       (split) => split.status === "unpaid" && split.user_id === user?.id,
     );
     if (myDebts.length === 0) return;
 
-    setSettlingId("all");
-    setError(null);
+    openSettlement(myDebts[0]);
+  }
+
+  async function handleAddDemoUsdcToWallet() {
+    setSettlementError(null);
+
+    if (!demoUSDC.address) {
+      setSettlementError("Demo USDC contract is not configured yet.");
+      return;
+    }
+
+    const ethereum = window.ethereum as EthereumProvider | undefined;
+
+    if (!ethereum) {
+      setSettlementNotice(
+        `MetaMask import is unavailable. Import ${demoUSDC.symbol} manually with ${demoUSDC.address}.`,
+      );
+      return;
+    }
 
     try {
-      for (const split of myDebts) {
-        await performSettlement(split);
+      await ethereum.request({
+        method: "wallet_watchAsset",
+        params: {
+          type: "ERC20",
+          options: {
+            address: demoUSDC.address,
+            symbol: demoUSDC.symbol,
+            decimals: demoUSDC.decimals,
+          },
+        },
+      });
+      setSettlementNotice("dUSDC added to MetaMask.");
+    } catch (caught) {
+      setSettlementError(settlementErrorMessage(caught));
+    }
+  }
+
+  async function handleGetDemoUsdc() {
+    setSettlementAction("mint");
+    setSettlementError(null);
+    setSettlementNotice(null);
+
+    try {
+      if (!demoUSDC.address) {
+        throw new Error("Demo USDC contract is not configured yet.");
       }
+      if (!isConnected || !address) {
+        throw new Error("Connect your wallet to get demo dUSDC.");
+      }
+
+      await ensureDefaultSettlementNetwork();
+
+      const hash = await writeContract(wagmiConfig, {
+        address: demoUSDC.address,
+        abi: demoUSDCAbi,
+        functionName: "faucetMint",
+        chainId: defaultSettlementNetwork.chainId,
+      });
+
+      await waitForTransactionReceipt(wagmiConfig, {
+        chainId: defaultSettlementNetwork.chainId,
+        hash: hash as Hash,
+      });
+
+      setSettlementNotice("1000 dUSDC minted to your wallet.");
+      await loadDemoUsdcBalance();
+    } catch (caught) {
+      setSettlementError(settlementErrorMessage(caught));
+    } finally {
+      setSettlementAction(null);
+    }
+  }
+
+  async function verifyAndRecordSettlement(
+    split: ExpenseSplit,
+    txHash: string,
+    senderWallet: string,
+  ) {
+    const expense = expensesById.get(split.expense_id);
+    const receiverWallet = expense?.paid_by_profile?.wallet_address ?? "";
+
+    if (!demoUSDC.address) {
+      throw new Error("Demo USDC contract is not configured.");
+    }
+    if (!isAddress(senderWallet)) {
+      throw new Error("Connect the wallet that sent the dUSDC payment.");
+    }
+    if (!isAddress(receiverWallet)) {
+      throw new Error("Recipient wallet is missing for this member.");
+    }
+
+    setSettlementAction("verify");
+    setSettlementNotice("Verifying dUSDC transfer on 0G Galileo Testnet...");
+
+    const response = await fetch("/api/verify-token-settlement", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        network: defaultSettlementNetwork.id,
+        txHash,
+        tokenAddress: demoUSDC.address,
+        expectedSender: senderWallet,
+        expectedRecipient: receiverWallet,
+        expectedAmount: String(split.amount_owed),
+        decimals: demoUSDC.decimals,
+      }),
+    });
+
+    const result = (await response.json()) as {
+      ok: boolean;
+      verified?: boolean;
+      reason?: string;
+      error?: string;
+      explorerUrl?: string;
+    };
+
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || "Could not verify transaction.");
+    }
+
+    if (!result.verified) {
+      throw new Error(result.reason || "No matching dUSDC transfer found.");
+    }
+
+    await recordSettlement({
+      splitId: split.id,
+      senderWallet,
+      receiverWallet,
+      amount: split.amount_owed,
+      txHash,
+      status: "settled",
+      network: defaultSettlementNetwork.id,
+    });
+
+    setSettlementNotice("Verified on 0G Galileo Testnet.");
+    await refreshWorkspace();
+  }
+
+  async function handleSendDemoUsdc(split: ExpenseSplit) {
+    const expense = expensesById.get(split.expense_id);
+    const receiverWallet = expense?.paid_by_profile?.wallet_address ?? "";
+
+    setSettlementAction("send");
+    setSettlementError(null);
+    setSettlementNotice(null);
+
+    try {
+      if (!demoUSDC.address) {
+        throw new Error("Demo USDC contract is not configured.");
+      }
+      if (!isConnected || !address) {
+        throw new Error("Connect your wallet to send dUSDC.");
+      }
+      if (!isAddress(receiverWallet)) {
+        throw new Error("Recipient wallet is missing for this member.");
+      }
+
+      await ensureDefaultSettlementNetwork();
+
+      const hash = await writeContract(wagmiConfig, {
+        address: demoUSDC.address,
+        abi: demoUSDCAbi,
+        functionName: "transfer",
+        args: [receiverWallet as Address, parseDemoUSDCAmount(split.amount_owed)],
+        chainId: defaultSettlementNetwork.chainId,
+      });
+
+      await waitForTransactionReceipt(wagmiConfig, {
+        chainId: defaultSettlementNetwork.chainId,
+        hash: hash as Hash,
+      });
+
+      setSettlementProof(hash);
+      await verifyAndRecordSettlement(split, hash, address);
+      await loadDemoUsdcBalance();
+    } catch (caught) {
+      setSettlementError(settlementErrorMessage(caught));
+    } finally {
+      setSettlementAction(null);
+    }
+  }
+
+  async function handleVerifyManualProof(split: ExpenseSplit) {
+    setSettlementAction("verify");
+    setSettlementError(null);
+    setSettlementNotice(null);
+
+    try {
+      if (!address) throw new Error("Connect the wallet that paid with dUSDC.");
+      const txHash = normalizeTxHashInput(settlementProof);
+      await verifyAndRecordSettlement(split, txHash, address);
+    } catch (caught) {
+      setSettlementError(settlementErrorMessage(caught));
+    } finally {
+      setSettlementAction(null);
+    }
+  }
+
+  async function handleUseMockProof(split: ExpenseSplit) {
+    const expense = expensesById.get(split.expense_id);
+    const receiverWallet = expense?.paid_by_profile?.wallet_address ?? "mock-recipient";
+
+    setSettlementAction("mock");
+    setSettlementError(null);
+    setSettlementNotice(null);
+
+    try {
+      if (!isDemoUser || isDemoUSDCConfigured()) {
+        throw new Error("Mock dUSDC proof is only available for demo mode.");
+      }
+
+      await recordSettlement({
+        splitId: split.id,
+        senderWallet: address ?? "mock-wallet",
+        receiverWallet,
+        amount: split.amount_owed,
+        txHash: `mock-dusdc-proof-${Date.now()}`,
+        status: "settled",
+        network: defaultSettlementNetwork.id,
+      });
+
+      setSettlementNotice("Mock dUSDC proof recorded for demo only.");
       await refreshWorkspace();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Settlement failed");
+      setSettlementError(settlementErrorMessage(caught));
     } finally {
-      setSettlingId(null);
+      setSettlementAction(null);
     }
   }
 
@@ -951,7 +1209,6 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               members={members}
               currency={room.currency}
               currentUserId={user?.id ?? ""}
-              settlingId={settlingId}
               onSettle={handleSettle}
               onSettleAll={handleSettleAllMyDebts}
             />
@@ -989,6 +1246,39 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           onClose={() => setScanOpen(false)}
           onUseResult={handleUseScanResult}
         />
+        {settlementSplit ? (
+          <DemoUsdcSettlementModal
+            split={settlementSplit}
+            expense={settlementExpense}
+            connectedAddress={address}
+            isConnected={isConnected}
+            chainId={chainId}
+            isDemoUser={isDemoUser}
+            balance={demoUsdcBalance}
+            proof={settlementProof}
+            notice={settlementNotice}
+            error={settlementError}
+            action={settlementAction}
+            onProofChange={setSettlementProof}
+            onClose={() => {
+              setSettlementSplit(null);
+              setSettlementProof("");
+              setSettlementNotice(null);
+              setSettlementError(null);
+              setSettlementAction(null);
+            }}
+            onSwitchNetwork={() => void ensureDefaultSettlementNetwork()}
+            onAddToken={() => void handleAddDemoUsdcToWallet()}
+            onMint={() => void handleGetDemoUsdc()}
+            onSend={() => void handleSendDemoUsdc(settlementSplit)}
+            onVerifyProof={() => void handleVerifyManualProof(settlementSplit)}
+            onMockProof={() => void handleUseMockProof(settlementSplit)}
+            onCopy={(text, message) => {
+              void navigator.clipboard.writeText(text);
+              setSettlementNotice(message);
+            }}
+          />
+        ) : null}
       </div>
     </AppShell>
   );
@@ -1130,7 +1420,7 @@ function RecentActivityPanel({
     ...settlements.slice(0, 2).map((settlement) => ({
       id: `settlement-${settlement.id}`,
       title: "Payment recorded",
-      detail: `${formatMoney(settlement.amount, "USDC")} settled`,
+      detail: `${formatMoney(settlement.amount, demoUSDC.symbol)} settled`,
       date: settlement.created_at,
     })),
     ...invites.slice(0, 2).map((invite) => ({
@@ -1299,7 +1589,7 @@ function AiInsightCards({
     },
     {
       title: `${metrics.unpaidCount} unpaid balance${metrics.unpaidCount === 1 ? "" : "s"} remain`,
-      detail: "Open balances to clear debts with checkout settlement.",
+      detail: "Open balances to settle with dUSDC.",
       action: "Settle now",
       onClick: onSettle,
     },
@@ -2056,7 +2346,6 @@ function BalancesPanel({
   members,
   currency,
   currentUserId,
-  settlingId,
   onSettle,
   onSettleAll,
 }: {
@@ -2066,9 +2355,8 @@ function BalancesPanel({
   members: WorkspaceMember[];
   currency: string;
   currentUserId: string;
-  settlingId: string | null;
-  onSettle: (split: ExpenseSplit) => Promise<void>;
-  onSettleAll: () => Promise<void>;
+  onSettle: (split: ExpenseSplit) => void;
+  onSettleAll: () => void;
 }) {
   const unpaidSplits = splits.filter((split) => split.status === "unpaid");
   const unpaidCount = unpaidSplits.length;
@@ -2082,25 +2370,20 @@ function BalancesPanel({
   return (
     <SectionCard elevated>
       <SectionHeader
-        eyebrow="Checkout settlement"
+        eyebrow="dUSDC settlement"
         title="Unpaid balances"
         description={`${unpaidCount} balance${
           unpaidCount === 1 ? "" : "s"
-        } ready for checkout settlement.`}
+        } ready for dUSDC settlement.`}
         action={
           myDebts.length > 0 ? (
             <PrimaryButton
               type="button"
               onClick={() => void onSettleAll()}
-              disabled={settlingId === "all"}
               className="h-11 bg-teal-600 px-4 shadow-[0_16px_36px_rgba(13,148,136,0.22)] hover:bg-teal-700"
             >
-              {settlingId === "all" ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Send className="size-4" aria-hidden="true" />
-              )}
-              Settle all my debts
+              <Send className="size-4" aria-hidden="true" />
+              Settle up
             </PrimaryButton>
           ) : null
         }
@@ -2109,18 +2392,22 @@ function BalancesPanel({
       {myDebts.length > 0 ? (
         <div className="mt-5 rounded-[24px] border border-teal-100 bg-gradient-to-r from-teal-50 to-cyan-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">
-            Your checkout total
+            Your settlement total
           </p>
           <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-3xl font-semibold tracking-tight text-slate-950">
-                {formatMoney(myDebtTotal, "USDC")}
+                {formatMoney(myDebtTotal, currency)}
               </p>
               <p className="mt-1 text-sm text-slate-600">
-                Settlement currency: {defaultSettlementNetwork.settlementCurrency}.
+                Pay {formatMoney(myDebtTotal, demoUSDC.symbol)} on{" "}
+                {defaultSettlementNetwork.label}.
+              </p>
+              <p className="mt-1 text-xs font-semibold text-teal-700">
+                Testnet demo token - no real value.
               </p>
             </div>
-            <Badge tone="teal">Method: Checkout payment</Badge>
+            <Badge tone="teal">Settlement token: {demoUSDC.symbol}</Badge>
           </div>
         </div>
       ) : null}
@@ -2164,13 +2451,13 @@ function BalancesPanel({
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                          Method: Checkout payment
+                           Token: {demoUSDC.symbol}
                         </span>
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                           Network: {settlementNetworkLabel(splitNetwork)}
                         </span>
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                          Settlement currency: USDC
+                           Gas token: {defaultSettlementNetwork.nativeSymbol}
                         </span>
                       </div>
                       {split.settlement_tx_hash ? (
@@ -2178,18 +2465,24 @@ function BalancesPanel({
                           <summary className="cursor-pointer text-xs font-semibold text-slate-600">
                             View technical details
                           </summary>
-                          <a
-                            href={transactionExplorerUrl(
-                              split.settlement_tx_hash,
-                              splitNetwork,
-                            )}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-3 inline-flex items-center gap-1 font-mono text-xs font-semibold text-teal-700 hover:underline"
-                          >
-                            {shortAddress(split.settlement_tx_hash)}
-                            <ExternalLink className="size-3" aria-hidden="true" />
-                          </a>
+                          {isTxHash(split.settlement_tx_hash) ? (
+                            <a
+                              href={transactionExplorerUrl(
+                                split.settlement_tx_hash,
+                                splitNetwork,
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-3 inline-flex items-center gap-1 font-mono text-xs font-semibold text-teal-700 hover:underline"
+                            >
+                              {shortAddress(split.settlement_tx_hash)}
+                              <ExternalLink className="size-3" aria-hidden="true" />
+                            </a>
+                          ) : (
+                            <span className="mt-3 inline-flex font-mono text-xs font-semibold text-slate-600">
+                              {split.settlement_tx_hash}
+                            </span>
+                          )}
                         </details>
                       ) : null}
                     </div>
@@ -2203,7 +2496,7 @@ function BalancesPanel({
                   ) : (
                     <div className="w-full rounded-[22px] border border-teal-100 bg-teal-50/70 p-4 lg:w-80">
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">
-                        Checkout summary
+                        dUSDC payment
                       </p>
                       <div className="mt-3 space-y-2 text-sm text-slate-700">
                         <CheckoutSummaryRow
@@ -2211,16 +2504,16 @@ function BalancesPanel({
                           value={expense ? userName(expense.paid_by, members) : "Payer"}
                         />
                         <CheckoutSummaryRow
-                          label="Amount"
-                          value={formatMoney(split.amount_owed, "USDC")}
+                          label="You owe"
+                          value={formatMoney(split.amount_owed, currency)}
                         />
                         <CheckoutSummaryRow
-                          label="Total"
-                          value={formatMoney(split.amount_owed, "USDC")}
+                          label="Pay"
+                          value={formatMoney(split.amount_owed, demoUSDC.symbol)}
                         />
                         <CheckoutSummaryRow
-                          label="Method"
-                          value="Checkout payment"
+                          label="Gas token"
+                          value={defaultSettlementNetwork.nativeSymbol}
                         />
                         <CheckoutSummaryRow
                           label="Network"
@@ -2230,15 +2523,10 @@ function BalancesPanel({
                       <PrimaryButton
                         type="button"
                         onClick={() => void onSettle(split)}
-                        disabled={settlingId === split.id || settlingId === "all"}
                         className="mt-4 h-11 w-full bg-teal-600 shadow-[0_16px_36px_rgba(13,148,136,0.22)] hover:bg-teal-700"
                       >
-                        {settlingId === split.id ? (
-                          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                        ) : (
-                          <Send className="size-4" aria-hidden="true" />
-                        )}
-                        Checkout settle
+                        <Send className="size-4" aria-hidden="true" />
+                        Settle with dUSDC
                       </PrimaryButton>
                     </div>
                   )}
@@ -2261,6 +2549,328 @@ function CheckoutSummaryRow({ label, value }: { label: string; value: string }) 
   );
 }
 
+function DemoUsdcSettlementModal({
+  split,
+  expense,
+  connectedAddress,
+  isConnected,
+  chainId,
+  isDemoUser,
+  balance,
+  proof,
+  notice,
+  error,
+  action,
+  onProofChange,
+  onClose,
+  onSwitchNetwork,
+  onAddToken,
+  onMint,
+  onSend,
+  onVerifyProof,
+  onMockProof,
+  onCopy,
+}: {
+  split: ExpenseSplit;
+  expense: Expense | null;
+  connectedAddress?: string;
+  isConnected: boolean;
+  chainId: number;
+  isDemoUser: boolean;
+  balance: string | null;
+  proof: string;
+  notice: string | null;
+  error: string | null;
+  action: string | null;
+  onProofChange: (value: string) => void;
+  onClose: () => void;
+  onSwitchNetwork: () => void;
+  onAddToken: () => void;
+  onMint: () => void;
+  onSend: () => void;
+  onVerifyProof: () => void;
+  onMockProof: () => void;
+  onCopy: (value: string, message: string) => void;
+}) {
+  const recipientWallet = expense?.paid_by_profile?.wallet_address ?? "";
+  const recipientName = expense ? profileLabel(expense.paid_by_profile) : "Recipient";
+  const tokenConfigured = isDemoUSDCConfigured();
+  const onDefaultNetwork = chainId === defaultSettlementNetwork.chainId;
+  const canSend =
+    tokenConfigured &&
+    isConnected &&
+    onDefaultNetwork &&
+    isAddress(recipientWallet) &&
+    !action;
+  const amountLabel = formatMoney(split.amount_owed, demoUSDC.symbol);
+  const recipientLabel = recipientWallet
+    ? shortAddress(recipientWallet)
+    : "Wallet needed";
+  const contractLabel = demoUSDC.address
+    ? shortAddress(demoUSDC.address)
+    : "Not configured";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:items-center sm:p-6">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[28px] border border-white/80 bg-white shadow-[0_30px_100px_rgba(15,23,42,0.28)]">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-5 sm:px-6">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="teal">Testnet only</Badge>
+              <Badge tone={tokenConfigured ? "green" : "amber"}>
+                {tokenConfigured ? "dUSDC ready" : "Contract needed"}
+              </Badge>
+            </div>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+              Settle with dUSDC
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              dUSDC is a fake testnet token used to simulate USDC settlement. It
+              has no real value.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 hover:bg-slate-50"
+            aria-label="Close settlement modal"
+          >
+            <XCircle className="size-5" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1fr_280px]">
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <SettlementInfoTile
+                label="You owe"
+                value={formatMoney(split.amount_owed, "USD")}
+              />
+              <SettlementInfoTile label="Pay" value={amountLabel} />
+              <SettlementInfoTile
+                label="Recipient wallet"
+                value={recipientLabel}
+                mono
+              />
+              <SettlementInfoTile
+                label="Network"
+                value={defaultSettlementNetwork.label}
+              />
+              <SettlementInfoTile
+                label="Gas token"
+                value={defaultSettlementNetwork.nativeSymbol}
+              />
+              <SettlementInfoTile label="Token" value={demoUSDC.name} />
+              <SettlementInfoTile label="Contract" value={contractLabel} mono />
+              <SettlementInfoTile
+                label="Your dUSDC balance"
+                value={balance ?? (tokenConfigured ? "Connect wallet" : "Unavailable")}
+              />
+            </div>
+
+            {!tokenConfigured ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                Demo USDC contract not configured yet. Set{" "}
+                <span className="font-mono font-semibold">
+                  NEXT_PUBLIC_DEMO_USDC_ADDRESS
+                </span>{" "}
+                after deployment to enable mint, send, and verify.
+              </div>
+            ) : null}
+
+            {!onDefaultNetwork && isConnected ? (
+              <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900">
+                Switch to {defaultSettlementNetwork.label} before minting or
+                sending dUSDC.
+              </div>
+            ) : null}
+
+            {notice ? (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+                {notice}
+              </div>
+            ) : null}
+
+            {error ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
+                {error}
+                {error.includes("0G testnet tokens") ? (
+                  <a
+                    href="https://faucet.0g.ai"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-1 inline-flex items-center gap-1 underline"
+                  >
+                    Open faucet
+                    <ExternalLink className="size-3" aria-hidden="true" />
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="mb-3 text-sm font-semibold text-slate-900">
+                I already paid
+              </p>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <input
+                  value={proof}
+                  onChange={(event) => onProofChange(event.target.value)}
+                  placeholder="Paste 0G transaction hash or ChainScan URL"
+                  className={cn(fieldClassName, "min-w-0 flex-1 bg-white")}
+                />
+                <PrimaryButton
+                  type="button"
+                  onClick={onVerifyProof}
+                  disabled={!proof.trim() || Boolean(action)}
+                  className="h-11 bg-slate-950 px-4 hover:bg-slate-800 sm:w-40"
+                >
+                  {action === "verify" ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <ShieldCheck className="size-4" aria-hidden="true" />
+                  )}
+                  Verify
+                </PrimaryButton>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                SplitSafe verifies the dUSDC Transfer event before marking this
+                balance as settled.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <PrimaryButton
+              type="button"
+              onClick={onSwitchNetwork}
+              disabled={action === "switch" || onDefaultNetwork}
+              className="h-11 w-full bg-slate-950 hover:bg-slate-800"
+            >
+              <Wallet className="size-4" aria-hidden="true" />
+              {onDefaultNetwork ? "0G selected" : "Switch to 0G"}
+            </PrimaryButton>
+            <SecondarySettlementButton onClick={onAddToken} disabled={!tokenConfigured}>
+              Add dUSDC to MetaMask
+            </SecondarySettlementButton>
+            <SecondarySettlementButton
+              onClick={onMint}
+              disabled={!tokenConfigured || Boolean(action)}
+            >
+              {action === "mint" ? "Minting..." : "Get demo dUSDC"}
+            </SecondarySettlementButton>
+            <PrimaryButton
+              type="button"
+              onClick={onSend}
+              disabled={!canSend}
+              className="h-11 w-full bg-teal-600 hover:bg-teal-700"
+            >
+              {action === "send" ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Send className="size-4" aria-hidden="true" />
+              )}
+              Send dUSDC
+            </PrimaryButton>
+            <SecondarySettlementButton
+              onClick={() => onCopy(recipientWallet, "Recipient wallet copied.")}
+              disabled={!recipientWallet}
+            >
+              Copy recipient wallet
+            </SecondarySettlementButton>
+            <SecondarySettlementButton
+              onClick={() => onCopy(String(split.amount_owed), "Amount copied.")}
+            >
+              Copy amount
+            </SecondarySettlementButton>
+            {isDemoUser && !tokenConfigured ? (
+              <button
+                type="button"
+                onClick={onMockProof}
+                disabled={Boolean(action)}
+                className="inline-flex h-11 w-full items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Mock dUSDC proof for demo only
+              </button>
+            ) : null}
+            <a
+              href="https://faucet.0g.ai"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Get 0G gas
+              <ExternalLink className="size-4" aria-hidden="true" />
+            </a>
+            <p className="text-xs leading-5 text-slate-500">
+              0G faucet provides gas only. dUSDC comes from the SplitSafe Demo
+              USDC contract.
+            </p>
+            {connectedAddress ? (
+              <p className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                Connected:{" "}
+                <span className="font-mono font-semibold text-slate-800">
+                  {shortAddress(connectedAddress)}
+                </span>
+              </p>
+            ) : null}
+            <p className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+              Recipient: <span className="font-semibold">{recipientName}</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettlementInfoTile({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+        {label}
+      </p>
+      <p
+        className={cn(
+          "mt-1 break-words text-sm font-semibold text-slate-950",
+          mono && "font-mono",
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function SecondarySettlementButton({
+  children,
+  disabled,
+  onClick,
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {children}
+    </button>
+  );
+}
+
 function TechnicalDetailsDisclosure({
   details,
 }: {
@@ -2279,7 +2889,8 @@ function TechnicalDetailsDisclosure({
       </summary>
       <div className="mt-3 space-y-2">
         {details.map((detail) => {
-          const isExplorerHash = detail.label === "transactionHash";
+          const isExplorerHash =
+            detail.label === "transactionHash" && isTxHash(detail.value);
           const value =
             detail.label === "transactionHash" || detail.label === "contractAddress"
               ? shortAddress(detail.value)
@@ -2414,7 +3025,7 @@ function SettlementHistoryPanel({
       <SectionHeader
         eyebrow="Receipts"
         title="Payment history"
-        description="Checkout receipts stay readable, with transaction hashes hidden until needed."
+        description="dUSDC receipts stay readable, with transaction hashes hidden until needed."
       />
       <div className="mt-6 space-y-3">
         {settlements.map((settlement) => (
@@ -2428,7 +3039,7 @@ function SettlementHistoryPanel({
               </div>
               <div>
                 <p className="font-semibold text-slate-950">
-                  {formatMoney(settlement.amount, "USDC")} settled
+                  {formatMoney(settlement.amount, demoUSDC.symbol)} settled
                 </p>
                 <p className="mt-1 text-xs font-semibold text-slate-500">
                   Balance cleared: {formatMoney(settlement.amount, currency)}
@@ -2439,7 +3050,7 @@ function SettlementHistoryPanel({
               <Badge tone={paymentStatusTone(settlement.status)}>
                 Status: {paymentStatusLabel(settlement.status)}
               </Badge>
-              <Badge tone="teal">Method: Checkout payment</Badge>
+              <Badge tone="teal">Token: {demoUSDC.symbol}</Badge>
               <Badge tone="blue">
                 Network: {settlementNetworkLabel(settlement.network)}
               </Badge>

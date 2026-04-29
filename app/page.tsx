@@ -35,8 +35,8 @@ const features = [
     icon: Scale,
   },
   {
-    title: "Checkout settlement",
-    description: "Clear balances with simple checkout-style payment records.",
+    title: "dUSDC settlement",
+    description: "Clear balances with fake testnet dUSDC payment records.",
     icon: Landmark,
   },
   {
@@ -115,8 +115,8 @@ export default function Home() {
                 </a>
               </div>
               <div className="mt-10 grid max-w-full grid-cols-1 gap-3 sm:max-w-xl sm:grid-cols-3">
-                <HeroMetric label="Budget" value="100 USDC" />
-                <HeroMetric label="Spent" value="30 USDC" />
+                <HeroMetric label="Budget" value="100 USD" />
+                <HeroMetric label="Spent" value="30 USD" />
                 <HeroMetric label="Unpaid" value="2 balances" />
               </div>
             </div>
@@ -280,8 +280,8 @@ function ProductPreview() {
         </div>
 
         <div className="mt-4 grid gap-3">
-          <BalancePreview name="Alex" amount="10 USDC" />
-          <BalancePreview name="May" amount="10 USDC" />
+          <BalancePreview name="Alex" amount="10 USD" />
+          <BalancePreview name="May" amount="10 USD" />
         </div>
       </div>
     </div>
@@ -302,7 +302,7 @@ function PreviewStat({
       <Icon className="size-5 text-teal-600" aria-hidden="true" />
       <p className="mt-3 text-xs font-medium text-slate-500">{label}</p>
       <p className="mt-1 text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">
-        {value} <span className="text-sm text-slate-400">USDC</span>
+        {value} <span className="text-sm text-slate-400">USD</span>
       </p>
     </div>
   );

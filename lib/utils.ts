@@ -16,7 +16,7 @@ export function nowIso() {
   return new Date().toISOString();
 }
 
-export function formatMoney(amount: number, currency = "USDC") {
+export function formatMoney(amount: number, currency = "USD") {
   return `${amount.toLocaleString(undefined, {
     maximumFractionDigits: 2,
     minimumFractionDigits: amount % 1 === 0 ? 0 : 2,

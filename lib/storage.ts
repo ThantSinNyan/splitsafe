@@ -172,7 +172,7 @@ function normalizeSettlement(value: unknown): Settlement {
     amount: asNumber(row.amount),
     tx_hash: asText(row.tx_hash),
     network: asText(row.network, defaultSettlementNetwork.id),
-    status: asText(row.status, "mocked") as Settlement["status"],
+    status: asText(row.status, "proof_submitted") as Settlement["status"],
     created_at: asText(row.created_at, nowIso()),
   };
 }

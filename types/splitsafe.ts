@@ -2,6 +2,16 @@ export type WorkspaceRole = "owner" | "admin" | "member";
 export type MemberStatus = "active" | "pending";
 export type InviteStatus = "pending" | "accepted" | "expired";
 export type SplitStatus = "unpaid" | "paid";
+export type SettlementStatus =
+  | "unpaid"
+  | "instructions_shown"
+  | "proof_submitted"
+  | "verifying"
+  | "verified"
+  | "rejected"
+  | "settled"
+  | "confirmed"
+  | "mocked";
 export type AiRole = "user" | "assistant";
 
 export type Profile = {
@@ -91,7 +101,7 @@ export type Settlement = {
   amount: number;
   tx_hash: string;
   network: string;
-  status: "confirmed" | "mocked";
+  status: SettlementStatus;
   created_at: string;
 };
 
@@ -142,6 +152,6 @@ export type SettlementInput = {
   receiverWallet: string;
   amount: number;
   txHash: string;
-  status: "confirmed" | "mocked";
+  status: SettlementStatus;
   network?: string;
 };

@@ -155,8 +155,8 @@ export function WalletPanel({
               {isConnected
                 ? `${shortAddress(address)} is ready for ${
                     connectedNetwork?.shortLabel ?? "the selected network"
-                  } checkout settlement.`
-                : "Connect a wallet for checkout settlement, or record payments manually."}
+                  } dUSDC settlement.`
+                : "Connect a wallet for dUSDC settlement, or record payments manually."}
             </p>
           </div>
         </div>

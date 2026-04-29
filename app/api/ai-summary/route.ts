@@ -10,6 +10,7 @@ import {
   fallbackSettlementNetwork,
   settlementNetworkLabel,
 } from "@/lib/networks";
+import { demoUSDC } from "@/lib/tokens";
 import { formatMoney, memberName, profileLabel, shortAddress } from "@/lib/utils";
 
 type SummaryPayload = {
@@ -89,7 +90,7 @@ async function tryGeminiSummary(payload: SummaryPayload, context: SummaryContext
             text: [
               "You are SplitSafe AI, a concise multi-user group budgeting assistant.",
               "You only help with SplitSafe private groups, expense splitting, spending insights, balances, invite status, and settlement status.",
-              `Product rules: ${defaultSettlementNetwork.shortLabel} is the default settlement network. ${fallbackSettlementNetwork.shortLabel} is a fallback option.`,
+              `Product rules: ${defaultSettlementNetwork.label} is the default settlement network, ${demoUSDC.symbol} is fake testnet money only, and ${fallbackSettlementNetwork.shortLabel} is a fallback option.`,
               "Never ask users for private keys or seed phrases, and never give investment or trading advice.",
               "Treat wallet addresses as public identifiers. Do not ask for private keys, seed phrases, service role keys, or API keys.",
               "If the question is unclear, briefly explain what SplitSafe AI can help with.",
@@ -173,7 +174,7 @@ function buildSummaryContext(payload: SummaryPayload) {
       rules: [
         "Supabase Auth accounts",
         "group data isolated by RLS",
-        `${defaultSettlementNetwork.shortLabel} settlement`,
+        `${demoUSDC.symbol} settlement on ${defaultSettlementNetwork.label}`,
         `${fallbackSettlementNetwork.shortLabel} fallback settlement`,
         "no investment or trading advice",
       ],
@@ -254,6 +255,7 @@ function buildSummaryContext(payload: SummaryPayload) {
       amount: settlement.amount,
       currency,
       network: settlementNetworkLabel(settlement.network),
+      token: demoUSDC.symbol,
       status: settlement.status,
       transactionHash: settlement.tx_hash,
       explorerLabel: shortAddress(settlement.tx_hash),
@@ -291,7 +293,7 @@ function buildRuleBasedSummary(
       : `You still have ${formatMoney(remaining, currency)} remaining.`;
 
   if (isGreeting(question)) {
-    return `Hi, I am SplitSafe AI. I can help explain ${context.workspace.name}'s budget, unpaid balances, category spending, and ${defaultSettlementNetwork.label} settlement status.`;
+    return `Hi, I am SplitSafe AI. I can help explain ${context.workspace.name}'s budget, unpaid balances, category spending, and ${demoUSDC.symbol} settlement status.`;
   }
 
   if (
@@ -376,13 +378,13 @@ function buildRuleBasedSummary(
 
   if (question.includes("next") || question.includes("do next")) {
     if (unpaid.length > 0) {
-      return `Next, settle the unpaid balances on ${defaultSettlementNetwork.label} or mark them paid: ${unpaidText}`;
+      return `Next, settle the unpaid balances with ${demoUSDC.symbol} on ${defaultSettlementNetwork.label}: ${unpaidText}`;
     }
 
     return "Next, invite members or add any missing expenses. All current balances look paid.";
   }
 
-  return `I can help with group budget summaries, unpaid balances, top spending categories, remaining budget, who paid the most, and ${defaultSettlementNetwork.label} settlement status.`;
+  return `I can help with group budget summaries, unpaid balances, top spending categories, remaining budget, who paid the most, and ${demoUSDC.symbol} settlement status.`;
 }
 
 function isGreeting(question: string) {

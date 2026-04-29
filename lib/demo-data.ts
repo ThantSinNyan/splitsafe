@@ -16,7 +16,7 @@ export const demoUserId = "demo-alex";
 const contractAddress = "0x7A3bC9dE12F45a6789bCdEf0123456789AbCdEf0";
 const checkoutSessionId = "checkout_session_001";
 const network = defaultSettlementNetwork.id;
-const settlementMethod = "Checkout payment";
+const settlementMethod = "dUSDC settlement";
 
 const demoTransactionHashes = [
   "0x8f3a9c2b7d6e4f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a",
@@ -73,15 +73,15 @@ function profile(
 }
 
 const profiles = [
-  profile(demoUserId, "Alex Carter", "alex@splitsafe.app", "wallet-alex"),
-  profile("demo-maya", "Maya Chen", "maya.chen@example.com", "wallet-maya"),
-  profile("demo-chris", "Chris Wong", "chris.wong@example.com", "wallet-chris"),
-  profile("demo-thant", "Thant Nyan", "thant.nyan@example.com", "wallet-thant"),
-  profile("demo-yuki", "Yuki Tanaka", "yuki.tanaka@example.com", "wallet-yuki"),
-  profile("demo-min", "Min Zaw", "min.zaw@example.com", "wallet-min"),
-  profile("demo-sarah", "Sarah Lee", "sarah.lee@example.com", "wallet-sarah"),
-  profile("demo-bot", "Builder Bot", "builder.bot@example.com", "wallet-builder"),
-  profile("demo-jamie", "Jamie Dev", "jamie.dev@example.com", "wallet-jamie"),
+    profile(demoUserId, "Alex Carter", "alex@splitsafe.app", "0x1111111111111111111111111111111111111111"),
+    profile("demo-maya", "Maya Chen", "maya.chen@example.com", "0x2222222222222222222222222222222222222222"),
+    profile("demo-chris", "Chris Wong", "chris.wong@example.com", "0x3333333333333333333333333333333333333333"),
+    profile("demo-thant", "Thant Nyan", "thant.nyan@example.com", "0x4444444444444444444444444444444444444444"),
+    profile("demo-yuki", "Yuki Tanaka", "yuki.tanaka@example.com", "0x5555555555555555555555555555555555555555"),
+    profile("demo-min", "Min Zaw", "min.zaw@example.com", "0x6666666666666666666666666666666666666666"),
+    profile("demo-sarah", "Sarah Lee", "sarah.lee@example.com", "0x7777777777777777777777777777777777777777"),
+    profile("demo-bot", "Builder Bot", "builder.bot@example.com", "0x8888888888888888888888888888888888888888"),
+    profile("demo-jamie", "Jamie Dev", "jamie.dev@example.com", "0x9999999999999999999999999999999999999999"),
 ];
 
 function profileById(userId: string) {
@@ -194,7 +194,7 @@ function buildWorkspace(
             amount: share,
             tx_hash: txHash,
             network,
-            status: "mocked",
+        status: "settled",
             created_at: split.settled_at ?? isoMinutesAgo(createdMinutesAgo - 100),
           });
         }

@@ -101,7 +101,19 @@ create table public.settlements (
   amount numeric not null,
   tx_hash text not null,
   network text not null default '0g-galileo',
-  status text not null default 'mocked' check (status in ('confirmed', 'mocked')),
+  status text not null default 'proof_submitted' check (
+    status in (
+      'unpaid',
+      'instructions_shown',
+      'proof_submitted',
+      'verifying',
+      'verified',
+      'rejected',
+      'settled',
+      'confirmed',
+      'mocked'
+    )
+  ),
   created_at timestamptz not null default now()
 );
 

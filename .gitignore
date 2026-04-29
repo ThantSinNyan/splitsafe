@@ -13,6 +13,10 @@
 # testing
 /coverage
 
+# hardhat
+/artifacts
+/cache
+
 # next.js
 /.next/
 /out/

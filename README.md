@@ -46,6 +46,7 @@ SplitSafe gives each group a private budget room:
 - Gemini API through a server-only Next.js route
 - wagmi + viem + RainbowKit
 - 0G Galileo by default, Base Sepolia as fallback/legacy
+- Fake dUSDC ERC20 settlement on 0G Galileo Testnet
 - Vercel production deploy
 
 ## Brand Assets
@@ -77,11 +78,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 NEXT_PUBLIC_0G_GALILEO_RPC_URL=https://evmrpc-testnet.0g.ai
 NEXT_PUBLIC_DEFAULT_CHAIN=0g-galileo
 NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=
+NEXT_PUBLIC_DEMO_USDC_ADDRESS=
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
 GEMINI_API_KEY=
 RESEND_API_KEY=
 GENSYN_AXL_ENDPOINT=
 NEXT_PUBLIC_GENSYN_AXL_ENABLED=false
+OG_GALILEO_RPC_URL=https://evmrpc-testnet.0g.ai
+DEPLOYER_PRIVATE_KEY=
 ```
 
 `GEMINI_API_KEY` must stay server-only. Never rename it to `NEXT_PUBLIC_GEMINI_API_KEY`.
@@ -132,30 +136,47 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Settlement Network
+## Demo USDC Settlement On 0G Galileo
 
-SplitSafe uses supported network settlement or manual payment records.
+SplitSafe tracks expenses, budgets, and balances in USD. For the hackathon demo,
+settlements use fake `dUSDC` on 0G Galileo Testnet.
+
+Important:
+
+- `dUSDC` is a testnet ERC20 token with no real value.
+- It is not real USDC.
+- 0G is used only as the gas token.
+- SplitSafe verifies `dUSDC` Transfer events before marking a balance as settled.
+- In production, `dUSDC` can be replaced by real USDC/USDT or a checkout provider.
 
 Default network:
 
-- 0G Galileo
+- 0G Galileo Testnet
 - Chain ID: `16602`
 - Explorer: `https://chainscan-galileo.0g.ai`
 - Development RPC: `https://evmrpc-testnet.0g.ai`
+- Settlement token: `dUSDC`
+- Gas token: `0G`
 
 Fallback/legacy network:
 
 - Base Sepolia
 
-Steps:
+Deploy `dUSDC`:
 
-1. Add 0G Galileo to your wallet, or keep Base Sepolia for fallback support.
-2. Fund the wallet with the relevant network tokens.
-3. Connect wallet in the app.
-4. If the payment receiver has a wallet saved on their profile, SplitSafe can send a payment on the active supported network.
-5. If no receiver wallet is available, SplitSafe records a manual settlement.
+1. Get 0G testnet gas from [https://faucet.0g.ai](https://faucet.0g.ai).
+2. Add `OG_GALILEO_RPC_URL` locally.
+3. Add `DEPLOYER_PRIVATE_KEY` locally.
+4. Run `npm run deploy:demo-usdc`.
+5. Copy the deployed `dUSDC` contract address.
+6. Add `NEXT_PUBLIC_DEMO_USDC_ADDRESS` to Vercel.
+7. Redeploy.
+8. Test add-token, faucet mint, send, and verify in the settlement modal.
 
-No mainnet funds are required or requested.
+Never commit private keys, seed phrases, or `.env.local`.
+
+If `NEXT_PUBLIC_DEMO_USDC_ADDRESS` is missing, the app stays usable and the
+guest account can record a clearly labeled mock dUSDC proof for demo only.
 
 ## Smart Settlement
 
@@ -179,14 +200,19 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 NEXT_PUBLIC_0G_GALILEO_RPC_URL=https://evmrpc-testnet.0g.ai
 NEXT_PUBLIC_DEFAULT_CHAIN=0g-galileo
 NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=
+NEXT_PUBLIC_DEMO_USDC_ADDRESS=
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
 GEMINI_API_KEY=
 RESEND_API_KEY=
 GENSYN_AXL_ENDPOINT=
 NEXT_PUBLIC_GENSYN_AXL_ENABLED=false
+OG_GALILEO_RPC_URL=https://evmrpc-testnet.0g.ai
+DEPLOYER_PRIVATE_KEY=
 ```
 
-`RESEND_API_KEY` and `GENSYN_AXL_ENDPOINT` are optional placeholders. The app works without them.
+`NEXT_PUBLIC_DEMO_USDC_ADDRESS`, `RESEND_API_KEY`, and `GENSYN_AXL_ENDPOINT`
+are optional placeholders. Real dUSDC mint/send/verify requires the deployed
+token address.
 
 Production URL: [https://splitsafe.vercel.app](https://splitsafe.vercel.app)
 
@@ -202,14 +228,16 @@ Do not add `.env.local`, wallet private keys, seed phrases, Supabase service rol
 2. Click **Launch App**.
 3. Sign up or log in with Google/email, or continue as guest.
 4. Open a group and review members, expenses, balances, messages, and payment records.
-6. Use **Smart Slip Scan** inside Add Expense to upload a receipt/slip, review the extracted result, and fill the form.
-7. Add or edit an expense and split it across active members.
-8. Ask the assistant: `Who still needs to pay?`
-9. Click **Settle up** next to an unpaid balance.
-10. Show paid status and payment details.
+5. Use **Smart Slip Scan** inside Add Expense to upload a receipt/slip, review the extracted result, and fill the form.
+6. Add or edit an expense and split it across active members.
+7. Ask the assistant: `Who still needs to pay?`
+8. Click **Settle up** next to an unpaid balance.
+9. Mint fake dUSDC, send it to the recipient wallet, or paste an existing transaction hash.
+10. SplitSafe verifies the dUSDC transfer and shows settled status.
 
 ## Notes
 
 - RLS is enabled and should be treated as the security boundary.
-- The Solidity contract is included as a simple registry/event layer and is not required for the app to run.
+- `contracts/DemoUSDC.sol` is a fake testnet token for settlement demos only.
+- `contracts/SplitSafeRegistry.sol` is a simple registry/event layer and is not required for the app to run.
 - The public GitHub repo is `https://github.com/ThantSinNyan/splitsafe`.

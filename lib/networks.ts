@@ -48,7 +48,7 @@ export const settlementNetworks = {
     rpcEnvVar: "NEXT_PUBLIC_0G_GALILEO_RPC_URL",
     explorerUrl: "https://chainscan-galileo.0g.ai",
     nativeSymbol: "0G",
-    settlementCurrency: "USDC",
+    settlementCurrency: "dUSDC",
     role: "default",
     aliases: [
       "0g",
