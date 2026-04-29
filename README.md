@@ -16,7 +16,7 @@ SplitSafe is now a real multi-user app:
 - Rich local demo account for testers who do not want to sign up
 - Session restore on refresh
 - Private groups scoped by membership
-- Email invite links for members and admins
+- Invite links for members and admins
 - Supabase Row Level Security on all app tables
 - Group expenses, equal splits, balances, settlement history, and AI messages
 - Gemini server-side AI with local fallback
@@ -74,14 +74,19 @@ Environment variables:
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-NEXT_PUBLIC_0G_GALILEO_RPC_URL=
+NEXT_PUBLIC_0G_GALILEO_RPC_URL=https://evmrpc-testnet.0g.ai
 NEXT_PUBLIC_DEFAULT_CHAIN=0g-galileo
 NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
 GEMINI_API_KEY=
+RESEND_API_KEY=
+GENSYN_AXL_ENDPOINT=
+NEXT_PUBLIC_GENSYN_AXL_ENABLED=false
 ```
 
 `GEMINI_API_KEY` must stay server-only. Never rename it to `NEXT_PUBLIC_GEMINI_API_KEY`.
+`RESEND_API_KEY` is optional for future invite email delivery and must stay server-only.
+`GENSYN_AXL_ENDPOINT` is optional and should stay server-side unless you intentionally expose a public local endpoint.
 
 ## Supabase Setup
 
@@ -109,7 +114,7 @@ SplitSafe AI uses Gemini only from server routes:
 3. Add it to `.env.local` and Vercel as:
 
 ```bash
-GEMINI_API_KEY=your_key_here
+GEMINI_API_KEY=
 ```
 
 Security rules:
@@ -152,21 +157,37 @@ Steps:
 
 No mainnet funds are required or requested.
 
+## Gensyn AXL-ready agent workflow
+
+SplitSafe models expense management as a set of cooperating agents:
+
+- Receipt Agent reads receipts and payment slips.
+- Budget Agent analyzes spending and budget impact.
+- Settlement Agent prepares who-owes-who repayment actions.
+- Safety Agent checks confidence and asks for confirmation before saving or payment.
+
+The current version runs this workflow locally for demo reliability. If `GENSYN_AXL_ENDPOINT` is configured, the server route can forward the workflow message to an AXL-compatible endpoint. Future versions can route agent messages through Gensyn AXL for peer-to-peer agent coordination.
+
 ## Deploy to Vercel
 
 The GitHub repository is connected to Vercel. Pushes to `main` automatically trigger a production deployment.
 
-Required Vercel environment variables:
+Vercel environment variables:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-NEXT_PUBLIC_0G_GALILEO_RPC_URL=
+NEXT_PUBLIC_0G_GALILEO_RPC_URL=https://evmrpc-testnet.0g.ai
 NEXT_PUBLIC_DEFAULT_CHAIN=0g-galileo
 NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL=
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
 GEMINI_API_KEY=
+RESEND_API_KEY=
+GENSYN_AXL_ENDPOINT=
+NEXT_PUBLIC_GENSYN_AXL_ENABLED=false
 ```
+
+`RESEND_API_KEY` and `GENSYN_AXL_ENDPOINT` are optional placeholders. The app works without them.
 
 Production URL: [https://splitsafe.vercel.app](https://splitsafe.vercel.app)
 

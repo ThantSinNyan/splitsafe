@@ -8,7 +8,7 @@ import {
   Loader2,
   LockKeyhole,
   Mail,
-  ShieldCheck,
+  ScanLine,
   UserRoundCheck,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
@@ -19,7 +19,6 @@ import {
   SecondaryButton,
   fieldClassName,
 } from "@/components/ui-kit";
-import { defaultSettlementNetwork } from "@/lib/networks";
 import { getSupabaseClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
@@ -135,21 +134,22 @@ function AuthPageContent() {
               <BrandMark />
             </Link>
             <div className="mt-14 inline-flex items-center gap-2 rounded-full border border-teal-200 bg-white px-4 py-2 text-sm font-semibold text-teal-700 shadow-sm">
-              <ShieldCheck className="size-4" aria-hidden="true" />
-              Real accounts, private groups
+              <ScanLine className="size-4" aria-hidden="true" />
+              AI receipts, private groups
             </div>
             <h1 className="mt-6 text-4xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
-              Secure group budgets for people who actually share costs.
+              Split expenses with AI, receipts, and simple settlement.
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
-              Sign in to create private groups, invite members by email,
-              split expenses, and keep every group isolated with Supabase RLS.
+              Create private groups, scan receipts or payment slips, see who
+              owes who, and settle faster.
             </p>
-            <div className="mt-8 grid max-w-2xl gap-3 sm:grid-cols-3">
+            <div className="mt-8 grid max-w-2xl gap-3 sm:grid-cols-2">
               {[
-                "Private RLS data",
-                "Google or email",
-                `${defaultSettlementNetwork.shortLabel} ready`,
+                "Private groups",
+                "Smart receipt scan",
+                "AI spending assistant",
+                "Testnet settlement",
               ].map((item) => (
                   <div
                     key={item}
@@ -211,7 +211,7 @@ function AuthPageContent() {
             </button>
             <p className="mt-2 text-center text-xs leading-5 text-slate-500">
               Loads an isolated local demo account with sample groups, balances,
-              messages, and fake testnet payment references.
+              messages, and demo payment references.
             </p>
 
             <div className="my-6 flex items-center gap-3">

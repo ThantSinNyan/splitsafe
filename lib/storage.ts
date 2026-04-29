@@ -2,11 +2,13 @@ import type { User } from "@supabase/supabase-js";
 import {
   acceptLocalInvite,
   addLocalExpense,
+  cancelLocalInvite,
   createLocalInvite,
   createLocalSampleWorkspace,
   createLocalWorkspace,
   getLocalDashboardStats,
   getLocalDemoUser,
+  getLocalInvitePreview,
   getLocalWorkspace,
   isLocalDemoMode,
   listLocalWorkspaces,
@@ -26,6 +28,7 @@ import type {
   Expense,
   ExpenseSplit,
   Invite,
+  InvitePreview,
   Profile,
   Settlement,
   SettlementInput,
@@ -105,6 +108,19 @@ function normalizeInvite(value: unknown): Invite {
     status: asText(row.status, "pending") as Invite["status"],
     created_at: asText(row.created_at, nowIso()),
     accepted_at: asNullableText(row.accepted_at),
+    expires_at: asNullableText(row.expires_at),
+  };
+}
+
+function normalizeInvitePreview(value: unknown): InvitePreview {
+  const row = asRecord(value);
+
+  return {
+    workspace_id: asText(row.workspace_id),
+    group_name: asText(row.group_name, "SplitSafe group"),
+    invited_email: asText(row.invited_email),
+    role: asText(row.role, "member") as InvitePreview["role"],
+    status: asText(row.status, "pending") as InvitePreview["status"],
     expires_at: asNullableText(row.expires_at),
   };
 }
@@ -256,16 +272,22 @@ export async function getDashboardStats() {
 
   const user = await getCurrentUser();
   const supabase = requireSupabaseClient();
-  const [expenses, splits] = await Promise.all([
+  const [expenses, splits, invites, settlements] = await Promise.all([
     supabase.from("expenses").select("id, amount, paid_by"),
     supabase.from("expense_splits").select("status, amount_owed, user_id, expense_id"),
+    supabase.from("invites").select("status"),
+    supabase.from("settlements").select("id"),
   ]);
 
   throwIfError(expenses.error);
   throwIfError(splits.error);
+  throwIfError(invites.error);
+  throwIfError(settlements.error);
 
   const expenseRows = expenses.data ?? [];
   const splitRows = splits.data ?? [];
+  const inviteRows = invites.data ?? [];
+  const settlementRows = settlements.data ?? [];
   const expensesById = new Map(
     expenseRows.map((row) => [asText(asRecord(row).id), asRecord(row)]),
   );
@@ -283,6 +305,10 @@ export async function getDashboardStats() {
       0,
     ),
     pendingSettlements: unpaidSplits.length,
+    pendingInvites: inviteRows
+      .map(asRecord)
+      .filter((row) => asText(row.status) === "pending").length,
+    recentActivity: expenseRows.length + settlementRows.length + inviteRows.length,
     youOwe: unpaidSplits
       .filter((row) => asText(row.user_id) === user.id)
       .reduce((sum, row) => sum + asNumber(row.amount_owed), 0),
@@ -446,6 +472,18 @@ export async function createInvite(
   return normalizeInvite(data);
 }
 
+export async function getInvitePreview(inviteToken: string) {
+  if (isLocalDemoMode()) return getLocalInvitePreview(inviteToken);
+
+  const supabase = requireSupabaseClient();
+  const { data, error } = await supabase
+    .rpc("invite_preview", { target_invite_token: inviteToken })
+    .maybeSingle();
+
+  throwIfError(error);
+  return data ? normalizeInvitePreview(data) : null;
+}
+
 export async function acceptInvite(inviteToken: string) {
   if (isLocalDemoMode()) return acceptLocalInvite(inviteToken);
 
@@ -453,6 +491,19 @@ export async function acceptInvite(inviteToken: string) {
   const supabase = requireSupabaseClient();
   const { data, error } = await supabase.rpc("accept_invite", {
     target_invite_token: inviteToken,
+  });
+
+  throwIfError(error);
+  return String(data);
+}
+
+export async function cancelInvite(inviteId: string) {
+  if (isLocalDemoMode()) return cancelLocalInvite(inviteId);
+
+  await getCurrentUser();
+  const supabase = requireSupabaseClient();
+  const { data, error } = await supabase.rpc("cancel_invite", {
+    target_invite_id: inviteId,
   });
 
   throwIfError(error);

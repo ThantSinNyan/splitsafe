@@ -169,11 +169,16 @@ export function getLocalDashboardStats() {
   const state = readState();
   const unpaidSplits = state.splits.filter((split) => split.status === "unpaid");
   const expensesById = new Map(state.expenses.map((expense) => [expense.id, expense]));
+  const pendingInvites = state.invites.filter(
+    (invite) => invite.status === "pending",
+  ).length;
 
   return {
     totalSpent: state.expenses.reduce((sum, expense) => sum + expense.amount, 0),
     totalUnpaid: unpaidSplits.reduce((sum, split) => sum + split.amount_owed, 0),
     pendingSettlements: unpaidSplits.length,
+    pendingInvites,
+    recentActivity: state.expenses.length + state.settlements.length + pendingInvites,
     youOwe: unpaidSplits
       .filter((split) => split.user_id === localDemoUserId)
       .reduce((sum, split) => sum + split.amount_owed, 0),
@@ -237,7 +242,9 @@ export function getLocalWorkspace(workspaceId: string): WorkspaceData | null {
     currentMember:
       members.find((member) => member.user_id === localDemoUserId) ?? null,
     members,
-    invites: state.invites.filter((invite) => invite.workspace_id === workspaceId),
+    invites: state.invites
+      .filter((invite) => invite.workspace_id === workspaceId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at)),
     expenses: state.expenses
       .filter((expense) => expense.workspace_id === workspaceId)
       .map((expense) => expenseWithProfile(state, expense))
@@ -278,6 +285,24 @@ export function createLocalInvite(
   return invite;
 }
 
+export function getLocalInvitePreview(inviteToken: string) {
+  const state = readState();
+  const invite = state.invites.find((item) => item.invite_token === inviteToken);
+  if (!invite) return null;
+
+  const workspace = state.workspaces.find((item) => item.id === invite.workspace_id);
+  if (!workspace) return null;
+
+  return {
+    workspace_id: invite.workspace_id,
+    group_name: workspace.name,
+    invited_email: invite.invited_email,
+    role: invite.role,
+    status: invite.status,
+    expires_at: invite.expires_at,
+  };
+}
+
 export function acceptLocalInvite(inviteToken: string) {
   const state = readState();
   const invite = state.invites.find((item) => item.invite_token === inviteToken);
@@ -285,6 +310,19 @@ export function acceptLocalInvite(inviteToken: string) {
 
   invite.status = "accepted";
   invite.accepted_at = nowIso();
+  writeState(state);
+  return invite.workspace_id;
+}
+
+export function cancelLocalInvite(inviteId: string) {
+  const state = readState();
+  const invite = state.invites.find((item) => item.id === inviteId);
+  if (!invite) throw new Error("Invite not found in local demo mode.");
+
+  if (invite.status === "pending") {
+    invite.status = "expired";
+  }
+
   writeState(state);
   return invite.workspace_id;
 }

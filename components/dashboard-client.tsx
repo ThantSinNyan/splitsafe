@@ -9,11 +9,11 @@ import {
   Database,
   Landmark,
   Loader2,
+  MailPlus,
   Plus,
   ReceiptText,
-  ShieldCheck,
   Sparkles,
-  Wallet,
+  Activity,
   WalletCards,
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
@@ -30,7 +30,6 @@ import {
   fieldClassName,
   textareaClassName,
 } from "@/components/ui-kit";
-import { WalletPanel } from "@/components/wallet-panel";
 import {
   createSampleWorkspace,
   createWorkspace,
@@ -52,6 +51,8 @@ type DashboardStats = {
   totalSpent: number;
   totalUnpaid: number;
   pendingSettlements: number;
+  pendingInvites: number;
+  recentActivity: number;
   youOwe: number;
   owedToYou: number;
 };
@@ -60,6 +61,8 @@ const emptyStats: DashboardStats = {
   totalSpent: 0,
   totalUnpaid: 0,
   pendingSettlements: 0,
+  pendingInvites: 0,
+  recentActivity: 0,
   youOwe: 0,
   owedToYou: 0,
 };
@@ -190,17 +193,9 @@ export function DashboardClient() {
             <div className="max-w-3xl">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone={supabaseReady || isDemoUser ? "green" : "amber"}>
-                  {isDemoUser
-                    ? "Local demo active"
-                    : supabaseReady
-                      ? "Supabase Auth active"
-                      : "Setup required"}
+                  {isDemoUser ? "Demo mode" : supabaseReady ? "Private groups" : "Setup required"}
                 </Badge>
-                <Badge tone="teal">
-                  <ShieldCheck className="size-3.5" aria-hidden="true" />
-                  RLS protected
-                </Badge>
-                {isDemoUser ? <Badge tone="amber">Demo Mode</Badge> : null}
+                <Badge tone="teal">Only members can view groups</Badge>
               </div>
               <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
                 My groups
@@ -228,9 +223,23 @@ export function DashboardClient() {
               ) : null}
               <PrimaryButton
                 type="button"
+                onClick={() => {
+                  document.getElementById("create")?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  });
+                }}
+                disabled={!supabaseReady && !isDemoUser}
+                className="min-w-56 bg-gradient-to-r from-slate-950 to-teal-900"
+              >
+                <Plus className="size-4" aria-hidden="true" />
+                Create group
+              </PrimaryButton>
+              <button
+                type="button"
                 onClick={() => void handleCreateSample()}
                 disabled={(!supabaseReady && !isDemoUser) || sampleLoading}
-                className="min-w-56 bg-gradient-to-r from-slate-950 to-teal-900"
+                className="inline-flex h-12 min-w-56 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-sm hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {sampleLoading ? (
                   <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -238,32 +247,32 @@ export function DashboardClient() {
                   <Sparkles className="size-4" aria-hidden="true" />
                 )}
                 Create sample group
-              </PrimaryButton>
+              </button>
             </div>
           </div>
         </header>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <StatCard
-            label="Groups"
+            label="My groups"
             value={workspaces.length.toString()}
             detail="Private groups you belong to"
             icon={WalletCards}
             tone="teal"
           />
           <StatCard
-            label="Total spent"
-            value={formatMoney(stats.totalSpent, "USD")}
-            detail="Visible to your group memberships"
+            label="You owe"
+            value={formatMoney(stats.youOwe, "USD")}
+            detail="Your unpaid balances"
             icon={CircleDollarSign}
-            tone="green"
+            tone="rose"
           />
           <StatCard
-            label="Total unpaid"
-            value={formatMoney(stats.totalUnpaid, "USD")}
-            detail="All unpaid balances"
+            label="Owed to you"
+            value={formatMoney(stats.owedToYou, "USD")}
+            detail="Unpaid balances friends owe"
             icon={ReceiptText}
-            tone="amber"
+            tone="green"
           />
           <StatCard
             label="Pending settlements"
@@ -273,22 +282,20 @@ export function DashboardClient() {
             tone="amber"
           />
           <StatCard
-            label="You owe"
-            value={formatMoney(stats.youOwe, "USD")}
-            detail="Your unpaid debts"
-            icon={Wallet}
-            tone="rose"
+            label="Pending invites"
+            value={stats.pendingInvites.toString()}
+            detail="Waiting for members"
+            icon={MailPlus}
+            tone="blue"
           />
           <StatCard
-            label="Owed to you"
-            value={formatMoney(stats.owedToYou, "USD")}
-            detail="Friends still owe you"
-            icon={ShieldCheck}
-            tone="teal"
+            label="Recent activity"
+            value={stats.recentActivity.toString()}
+            detail={formatMoney(stats.totalUnpaid, "USD") + " still unpaid"}
+            icon={Activity}
+            tone="slate"
           />
         </section>
-
-        <WalletPanel />
 
         {!supabaseReady && !isDemoUser ? (
           <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 p-5 text-sm leading-6 text-amber-900 shadow-sm">

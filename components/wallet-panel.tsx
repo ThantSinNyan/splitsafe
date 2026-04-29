@@ -131,7 +131,7 @@ export function WalletPanel({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-base font-semibold tracking-tight text-slate-950">
-                Wallet & network
+                Payment network
               </h2>
               <Badge
                 tone={
@@ -153,10 +153,10 @@ export function WalletPanel({
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
               {isConnected
-                ? `${shortAddress(address)} is connected for ${
+                ? `${shortAddress(address)} is ready for ${
                     connectedNetwork?.label ?? "testnet"
-                  } settlement.`
-                : `Connect a wallet for ${defaultSettlementNetwork.label} settlement, or keep using mock settlement for the demo.`}
+                  } checkout settlement.`
+                : `Connect a wallet for checkout settlement, or keep using demo settlement.`}
             </p>
           </div>
         </div>

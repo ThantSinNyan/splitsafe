@@ -141,11 +141,11 @@ export function AppShell({
                 <Sparkles className="size-5" aria-hidden="true" />
               </div>
               <p className="mt-4 text-sm font-semibold text-slate-950">
-                {eyebrow ?? "Account group mode"}
+                {eyebrow ?? "Private groups"}
               </p>
               <p className="mt-2 text-xs leading-5 text-slate-500">
-                Authenticated groups, RLS-backed data, AI summaries, and
-                testnet settlement keep the flow secure.
+                Create a group, scan expenses, ask AI, and settle when everyone
+                is ready.
               </p>
             </div>
           </div>

@@ -46,6 +46,15 @@ export type Invite = {
   expires_at: string | null;
 };
 
+export type InvitePreview = {
+  workspace_id: string;
+  group_name: string;
+  invited_email: string;
+  role: Exclude<WorkspaceRole, "owner">;
+  status: InviteStatus;
+  expires_at: string | null;
+};
+
 export type Expense = {
   id: string;
   workspace_id: string;

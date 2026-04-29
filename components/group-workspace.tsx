@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { waitForTransactionReceipt } from "@wagmi/core";
 import {
   ArrowLeft,
+  ArrowRight,
   Bot,
   CheckCircle2,
   CircleDollarSign,
@@ -24,6 +25,7 @@ import {
   TrendingUp,
   Users,
   Wallet,
+  XCircle,
 } from "lucide-react";
 import { isAddress, parseEther, type Address, type Hash } from "viem";
 import {
@@ -48,17 +50,20 @@ import {
   textareaClassName,
 } from "@/components/ui-kit";
 import { SmartSlipScanModal } from "@/components/SmartSlipScanModal";
-import { WalletPanel } from "@/components/wallet-panel";
 import {
   acceptInvite,
   addExpense,
+  cancelInvite,
   createInvite,
+  getInvitePreview,
   getWorkspace,
   recordSettlement,
   saveAiMessage,
 } from "@/lib/storage";
+import type { AgentWorkflowStep } from "@/lib/agents";
 import {
   defaultSettlementNetwork,
+  fallbackSettlementNetwork,
   getSettlementNetworkByChainId,
   settlementNetworkLabel,
   settlementNetworkTxUrl,
@@ -78,6 +83,8 @@ import type {
   CreateInviteInput,
   Expense,
   ExpenseSplit,
+  Invite,
+  InvitePreview,
   WorkspaceData,
   WorkspaceMember,
 } from "@/types/splitsafe";
@@ -104,7 +111,7 @@ const suggestedPrompts = [
 ];
 
 type AiStatus = "idle" | "gemini" | "fallback" | "unavailable";
-type GroupTab = "overview" | "expenses" | "settle" | "ai";
+type GroupTab = "overview" | "expenses" | "balances" | "ai" | "members";
 
 const groupTabs: Array<{
   id: GroupTab;
@@ -114,7 +121,7 @@ const groupTabs: Array<{
   {
     id: "overview",
     label: "Overview",
-    description: "Budget, members, and AI summary",
+    description: "Budget, activity, and quick actions",
   },
   {
     id: "expenses",
@@ -122,14 +129,19 @@ const groupTabs: Array<{
     description: "Add, scan, and review the ledger",
   },
   {
-    id: "settle",
-    label: "Settle",
-    description: "Who owes who and checkout status",
+    id: "balances",
+    label: "Balances",
+    description: "Who owes who and payment history",
   },
   {
     id: "ai",
-    label: "AI Assistant",
-    description: "Ask about spending and next steps",
+    label: "AI",
+    description: "Copilot and agent workflow",
+  },
+  {
+    id: "members",
+    label: "Members",
+    description: "People, roles, and invites",
   },
 ];
 
@@ -256,6 +268,32 @@ function activeMembers(members: WorkspaceMember[]) {
   return members.filter((member) => member.status === "active");
 }
 
+function inviteUrl(inviteToken: string) {
+  const origin =
+    typeof window === "undefined"
+      ? "https://splitsafe.vercel.app"
+      : window.location.origin;
+
+  return `${origin}/invite/${inviteToken}`;
+}
+
+function formatInviteDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function inviteStatusTone(status: Invite["status"]) {
+  if (status === "pending") return "amber";
+  if (status === "accepted") return "green";
+  return "slate";
+}
+
 export function GroupWorkspace({ groupId }: { groupId: string }) {
   const router = useRouter();
   const { loading: authLoading, user } = useAuth();
@@ -275,6 +313,9 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   const [expenseSaving, setExpenseSaving] = useState(false);
   const [settlingId, setSettlingId] = useState<string | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteNotice, setInviteNotice] = useState<string | null>(null);
+  const [inviteEmailNotice, setInviteEmailNotice] = useState<string | null>(null);
+  const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(null);
   const [aiQuestion, setAiQuestion] = useState("Who still needs to pay?");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiStatus>("idle");
@@ -402,6 +443,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     setInviteSaving(true);
     setError(null);
     setInviteLink(null);
+    setInviteNotice(null);
+    setInviteEmailNotice(null);
 
     try {
       if (!inviteForm.invited_email.trim()) {
@@ -409,15 +452,40 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       }
 
       const invite = await createInvite(groupId, inviteForm);
-      const link = `${window.location.origin}/invite/${invite.invite_token}`;
+      const link = inviteUrl(invite.invite_token);
       setInviteLink(link);
-      await navigator.clipboard?.writeText(link);
+      setInviteNotice("Invite created. Share this link or send by email.");
+      setInviteEmailNotice(
+        "Email delivery is not configured yet. Copy the invite link to share manually.",
+      );
       setInviteForm(initialInviteForm);
       await refreshWorkspace();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not create invite");
     } finally {
       setInviteSaving(false);
+    }
+  }
+
+  async function handleCopyInvite(inviteToken: string) {
+    const link = inviteUrl(inviteToken);
+    await navigator.clipboard?.writeText(link);
+    setInviteLink(link);
+    setInviteNotice("Invite link copied.");
+  }
+
+  async function handleCancelInvite(inviteId: string) {
+    setCancellingInviteId(inviteId);
+    setError(null);
+
+    try {
+      await cancelInvite(inviteId);
+      setInviteNotice("Invite cancelled.");
+      await refreshWorkspace();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not cancel invite");
+    } finally {
+      setCancellingInviteId(null);
     }
   }
 
@@ -733,13 +801,6 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           </div>
         </header>
 
-        <WalletPanel />
-
-        <div className="rounded-[24px] border border-sky-200 bg-sky-50/90 p-5 text-sm leading-6 text-sky-900 shadow-sm">
-          Supabase RLS protects this group. Only active members can read
-          expenses, splits, AI messages, invites, and settlement history.
-        </div>
-
         {error ? (
           <div className="rounded-[24px] border border-rose-200 bg-rose-50 p-5 text-sm leading-6 text-rose-800 shadow-sm">
             {error}
@@ -747,8 +808,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         ) : null}
 
         <FlowSteps />
-        <CurrencyStrip budgetCurrency={room.currency} />
         <GroupTabs activeTab={activeTab} onChange={setActiveTab} />
+        <DeveloperDetailsPanel />
 
         {activeTab === "overview" ? (
           <div className="space-y-6">
@@ -802,22 +863,48 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
                   metrics={metrics}
                   currency={room.currency}
                   onAskAi={openAiWithQuestion}
-                  onSettle={() => setActiveTab("settle")}
+                  onSettle={() => setActiveTab("balances")}
                   onAddExpense={() => setActiveTab("expenses")}
                 />
               </div>
-              <MembersPanel
-                members={members}
-                invites={invites}
-                canManage={canManage}
-                inviteForm={inviteForm}
-                inviteSaving={inviteSaving}
-                inviteLink={inviteLink}
-                setInviteForm={setInviteForm}
-                onInvite={handleInvite}
-              />
+              <div className="space-y-6">
+                <QuickActionsPanel
+                  canManage={canManage}
+                  onAddExpense={() => setActiveTab("expenses")}
+                  onScanReceipt={() => {
+                    setActiveTab("expenses");
+                    setScanOpen(true);
+                  }}
+                  onInviteMember={() => setActiveTab("members")}
+                  onSettle={() => setActiveTab("balances")}
+                />
+                <RecentActivityPanel
+                  expenses={expenses}
+                  settlements={settlements}
+                  invites={invites}
+                  currency={room.currency}
+                />
+              </div>
             </div>
           </div>
+        ) : null}
+
+        {activeTab === "members" ? (
+          <MembersPanel
+            members={members}
+            invites={invites}
+            canManage={canManage}
+            inviteForm={inviteForm}
+            inviteSaving={inviteSaving}
+            inviteLink={inviteLink}
+            inviteNotice={inviteNotice}
+            inviteEmailNotice={inviteEmailNotice}
+            cancellingInviteId={cancellingInviteId}
+            setInviteForm={setInviteForm}
+            onInvite={handleInvite}
+            onCopyInvite={handleCopyInvite}
+            onCancelInvite={handleCancelInvite}
+          />
         ) : null}
 
         {activeTab === "expenses" ? (
@@ -845,7 +932,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
           </section>
         ) : null}
 
-        {activeTab === "settle" ? (
+        {activeTab === "balances" ? (
           <div className="space-y-6">
             <BalancesPanel
               splits={splits}
@@ -873,8 +960,18 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               metrics={metrics}
               currency={room.currency}
               onAskAi={openAiWithQuestion}
-              onSettle={() => setActiveTab("settle")}
+              onSettle={() => setActiveTab("balances")}
               onAddExpense={() => setActiveTab("expenses")}
+            />
+            <AgentWorkflowPanel
+              context={{
+                groupName: room.name,
+                totalSpent: metrics.totalSpent,
+                budget: room.total_budget,
+                unpaidCount: metrics.unpaidCount,
+                topCategory: metrics.topCategory,
+              }}
+              onAskAi={() => setAiQuestion("What should we do next?")}
             />
             <AssistantPanel
               aiMessages={aiMessages}
@@ -924,27 +1021,21 @@ function FlowSteps() {
   );
 }
 
-function CurrencyStrip({ budgetCurrency }: { budgetCurrency: string }) {
+function DeveloperDetailsPanel() {
   return (
-    <div className="grid gap-3 rounded-[28px] border border-teal-100 bg-gradient-to-r from-teal-50 via-white to-cyan-50 p-4 shadow-sm md:grid-cols-3">
-      <CurrencyItem label="Budget currency" value={budgetCurrency} />
-      <CurrencyItem
-        label="Settlement currency"
-        value={defaultSettlementNetwork.settlementCurrency}
-      />
-      <CurrencyItem label="Network" value={defaultSettlementNetwork.label} />
-    </div>
-  );
-}
-
-function CurrencyItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-semibold text-slate-950">{value}</p>
-    </div>
+    <details className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
+      <summary className="cursor-pointer font-semibold text-slate-800">
+        Developer details
+      </summary>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <MiniDetail label="Privacy" value="Supabase RLS enabled" />
+        <MiniDetail label="AI" value="Gemini server-side with local fallback" />
+        <MiniDetail label="Default network" value={defaultSettlementNetwork.label} />
+        <MiniDetail label="Fallback network" value={fallbackSettlementNetwork.label} />
+        <MiniDetail label="Settlement" value="Real testnet or mock demo status" />
+        <MiniDetail label="Email" value="Invite links now, email provider later" />
+      </div>
+    </details>
   );
 }
 
@@ -956,7 +1047,7 @@ function GroupTabs({
   onChange: (tab: GroupTab) => void;
 }) {
   return (
-    <div className="grid gap-2 rounded-[28px] border border-slate-200 bg-white p-2 shadow-sm md:grid-cols-4">
+    <div className="grid gap-2 rounded-[28px] border border-slate-200 bg-white p-2 shadow-sm md:grid-cols-5">
       {groupTabs.map((tab) => (
         <button
           key={tab.id}
@@ -979,6 +1070,125 @@ function GroupTabs({
         </button>
       ))}
     </div>
+  );
+}
+
+function QuickActionsPanel({
+  canManage,
+  onAddExpense,
+  onScanReceipt,
+  onInviteMember,
+  onSettle,
+}: {
+  canManage: boolean;
+  onAddExpense: () => void;
+  onScanReceipt: () => void;
+  onInviteMember: () => void;
+  onSettle: () => void;
+}) {
+  const actions = [
+    { label: "Add expense", icon: Plus, onClick: onAddExpense, primary: true },
+    { label: "Scan receipt", icon: ScanLine, onClick: onScanReceipt },
+    { label: "Invite member", icon: MailPlus, onClick: onInviteMember, disabled: !canManage },
+    { label: "Settle", icon: Send, onClick: onSettle },
+  ];
+
+  return (
+    <SectionCard elevated>
+      <SectionHeader
+        eyebrow="Next step"
+        title="Quick actions"
+        description="Move through the core SplitSafe flow without hunting through the page."
+      />
+      <div className="mt-5 grid gap-3">
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            onClick={action.onClick}
+            disabled={action.disabled}
+            className={cn(
+              "flex h-12 items-center justify-between rounded-2xl border px-4 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-55",
+              action.primary
+                ? "border-slate-950 bg-slate-950 text-white hover:bg-slate-800"
+                : "border-slate-200 bg-white text-slate-700 hover:border-teal-200 hover:text-teal-800",
+            )}
+          >
+            <span className="flex items-center gap-2">
+              <action.icon className="size-4" aria-hidden="true" />
+              {action.label}
+            </span>
+            <ArrowRight className="size-4" aria-hidden="true" />
+          </button>
+        ))}
+      </div>
+    </SectionCard>
+  );
+}
+
+function RecentActivityPanel({
+  expenses,
+  settlements,
+  invites,
+  currency,
+}: {
+  expenses: Expense[];
+  settlements: WorkspaceData["settlements"];
+  invites: Invite[];
+  currency: string;
+}) {
+  const activity = [
+    ...expenses.slice(0, 3).map((expense) => ({
+      id: `expense-${expense.id}`,
+      title: expense.title,
+      detail: `${formatMoney(expense.amount, currency)} expense`,
+      date: expense.created_at,
+    })),
+    ...settlements.slice(0, 2).map((settlement) => ({
+      id: `settlement-${settlement.id}`,
+      title: "Payment recorded",
+      detail: `${formatMoney(settlement.amount, "USDC")} settled`,
+      date: settlement.created_at,
+    })),
+    ...invites.slice(0, 2).map((invite) => ({
+      id: `invite-${invite.id}`,
+      title: invite.invited_email,
+      detail: `${invite.status} invite`,
+      date: invite.created_at,
+    })),
+  ]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 5);
+
+  return (
+    <SectionCard elevated>
+      <SectionHeader
+        eyebrow="Activity"
+        title="Recent activity"
+        description="Latest expenses, invites, and payments in this group."
+      />
+      <div className="mt-5 space-y-3">
+        {activity.length === 0 ? (
+          <EmptyState
+            icon={ReceiptText}
+            title="Nothing yet"
+            body="Add an expense or invite a member to start the timeline."
+          />
+        ) : (
+          activity.map((item) => (
+            <div
+              key={item.id}
+              className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3"
+            >
+              <p className="font-semibold text-slate-950">{item.title}</p>
+              <p className="mt-1 text-xs font-medium text-slate-500">
+                {item.detail} · {formatInviteDate(item.date)}
+              </p>
+            </div>
+          ))
+        )}
+      </div>
+    </SectionCard>
   );
 }
 
@@ -1058,7 +1268,7 @@ function AiSummaryCard({
     <SectionCard elevated>
       <SectionHeader
         eyebrow="AI summary"
-        title="What judges should notice"
+        title="Group snapshot"
         description="A plain-language budget brief without opening the chat."
       />
       <p className="mt-5 rounded-[24px] border border-teal-100 bg-teal-50/70 p-5 text-sm leading-7 text-slate-700">
@@ -1106,7 +1316,7 @@ function AiInsightCards({
     },
     {
       title: `${metrics.unpaidCount} unpaid balance${metrics.unpaidCount === 1 ? "" : "s"} remain`,
-      detail: `Open checkout settlement to clear debts on ${defaultSettlementNetwork.label}.`,
+      detail: "Open balances to clear debts with checkout settlement.",
       action: "Settle now",
       onClick: onSettle,
     },
@@ -1152,8 +1362,13 @@ function MembersPanel({
   inviteForm,
   inviteSaving,
   inviteLink,
+  inviteNotice,
+  inviteEmailNotice,
+  cancellingInviteId,
   setInviteForm,
   onInvite,
+  onCopyInvite,
+  onCancelInvite,
 }: {
   members: WorkspaceMember[];
   invites: WorkspaceData["invites"];
@@ -1161,120 +1376,237 @@ function MembersPanel({
   inviteForm: CreateInviteInput;
   inviteSaving: boolean;
   inviteLink: string | null;
+  inviteNotice: string | null;
+  inviteEmailNotice: string | null;
+  cancellingInviteId: string | null;
   setInviteForm: React.Dispatch<React.SetStateAction<CreateInviteInput>>;
   onInvite: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
+  onCopyInvite: (inviteToken: string) => Promise<void>;
+  onCancelInvite: (inviteId: string) => Promise<void>;
+}) {
+  const groupedInvites = {
+    pending: invites.filter((invite) => invite.status === "pending"),
+    accepted: invites.filter((invite) => invite.status === "accepted"),
+    expired: invites.filter((invite) => invite.status === "expired"),
+  };
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[430px_1fr]">
+      <SectionCard elevated>
+        <SectionHeader
+          eyebrow="Members"
+          title="Invite members"
+          description="Private group: only members can access this group."
+        />
+
+        {canManage ? (
+          <form onSubmit={onInvite} className="mt-6 space-y-4">
+            <FieldLabel label="Invite by email">
+              <input
+                value={inviteForm.invited_email}
+                onChange={(event) =>
+                  setInviteForm((current) => ({
+                    ...current,
+                    invited_email: event.target.value,
+                  }))
+                }
+                type="email"
+                className={fieldClassName}
+                placeholder="friend@example.com"
+              />
+            </FieldLabel>
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <select
+                value={inviteForm.role}
+                onChange={(event) =>
+                  setInviteForm((current) => ({
+                    ...current,
+                    role: event.target.value as CreateInviteInput["role"],
+                  }))
+                }
+                className={fieldClassName}
+              >
+                <option value="member">member</option>
+                <option value="admin">admin</option>
+              </select>
+              <PrimaryButton type="submit" disabled={inviteSaving} className="px-4">
+                {inviteSaving ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <MailPlus className="size-4" aria-hidden="true" />
+                )}
+                Invite
+              </PrimaryButton>
+            </div>
+            {inviteNotice ? (
+              <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm leading-6 text-teal-800">
+                {inviteNotice}
+              </div>
+            ) : null}
+            {inviteEmailNotice ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+                {inviteEmailNotice}
+              </div>
+            ) : null}
+            {inviteLink ? (
+              <button
+                type="button"
+                onClick={() => void navigator.clipboard?.writeText(inviteLink)}
+                className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-xs font-semibold text-slate-700 hover:border-teal-200 hover:text-teal-800"
+              >
+                <span className="truncate">{inviteLink}</span>
+                <Copy className="size-4 shrink-0" aria-hidden="true" />
+              </button>
+            ) : null}
+          </form>
+        ) : (
+          <div className="mt-6 rounded-[22px] border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+            Only owners and admins can invite members.
+          </div>
+        )}
+
+        <div className="mt-6 space-y-3">
+          {members.map((member) => (
+            <div
+              key={member.id}
+              className="flex items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50/70 p-3"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <AvatarToken name={profileLabel(member.profile)} />
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-slate-950">
+                    {profileLabel(member.profile)}
+                  </p>
+                  <p className="mt-1 truncate text-xs text-slate-500">
+                    {member.profile?.email ?? "No email"}
+                  </p>
+                </div>
+              </div>
+              <Badge tone={member.role === "owner" ? "teal" : "slate"}>
+                {member.role}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard elevated>
+        <SectionHeader
+          eyebrow="Invites"
+          title="Pending invites"
+          description="Copy invite links manually until email delivery is configured."
+        />
+
+        <div className="mt-6 space-y-6">
+          <InviteStatusList
+            title="Pending invites"
+            empty="No pending invites."
+            invites={groupedInvites.pending}
+            canManage={canManage}
+            cancellingInviteId={cancellingInviteId}
+            onCopyInvite={onCopyInvite}
+            onCancelInvite={onCancelInvite}
+          />
+          <InviteStatusList
+            title="Accepted invites"
+            empty="No accepted invites yet."
+            invites={groupedInvites.accepted}
+            canManage={canManage}
+            cancellingInviteId={cancellingInviteId}
+            onCopyInvite={onCopyInvite}
+            onCancelInvite={onCancelInvite}
+          />
+          <InviteStatusList
+            title="Expired invites"
+            empty="No expired invites."
+            invites={groupedInvites.expired}
+            canManage={canManage}
+            cancellingInviteId={cancellingInviteId}
+            onCopyInvite={onCopyInvite}
+            onCancelInvite={onCancelInvite}
+          />
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function InviteStatusList({
+  title,
+  empty,
+  invites,
+  canManage,
+  cancellingInviteId,
+  onCopyInvite,
+  onCancelInvite,
+}: {
+  title: string;
+  empty: string;
+  invites: Invite[];
+  canManage: boolean;
+  cancellingInviteId: string | null;
+  onCopyInvite: (inviteToken: string) => Promise<void>;
+  onCancelInvite: (inviteId: string) => Promise<void>;
 }) {
   return (
-    <SectionCard elevated>
-      <SectionHeader
-        eyebrow="People"
-        title="Members"
-        description="Invite accounts by email. Access is enforced by Supabase RLS."
-      />
-
-      {canManage ? (
-        <form onSubmit={onInvite} className="mt-6 space-y-4">
-          <FieldLabel label="Invite email">
-            <input
-              value={inviteForm.invited_email}
-              onChange={(event) =>
-                setInviteForm((current) => ({
-                  ...current,
-                  invited_email: event.target.value,
-                }))
-              }
-              type="email"
-              className={fieldClassName}
-              placeholder="friend@example.com"
-            />
-          </FieldLabel>
-          <div className="grid grid-cols-[1fr_auto] gap-3">
-            <select
-              value={inviteForm.role}
-              onChange={(event) =>
-                setInviteForm((current) => ({
-                  ...current,
-                  role: event.target.value as CreateInviteInput["role"],
-                }))
-              }
-              className={fieldClassName}
-            >
-              <option value="member">member</option>
-              <option value="admin">admin</option>
-            </select>
-            <PrimaryButton type="submit" disabled={inviteSaving} className="px-4">
-              {inviteSaving ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <MailPlus className="size-4" aria-hidden="true" />
-              )}
-              Invite
-            </PrimaryButton>
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+        {title}
+      </p>
+      <div className="mt-3 space-y-2">
+        {invites.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+            {empty}
           </div>
-          {inviteLink ? (
-            <button
-              type="button"
-              onClick={() => void navigator.clipboard?.writeText(inviteLink)}
-              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-left text-xs font-semibold text-teal-800"
+        ) : (
+          invites.map((invite) => (
+            <div
+              key={invite.id}
+              className="grid gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm md:grid-cols-[1fr_auto]"
             >
-              <span className="truncate">{inviteLink}</span>
-              <Copy className="size-4 shrink-0" aria-hidden="true" />
-            </button>
-          ) : null}
-        </form>
-      ) : (
-        <div className="mt-6 rounded-[22px] border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-          Only owners and admins can invite members.
-        </div>
-      )}
-
-      <div className="mt-6 space-y-3">
-        {members.map((member) => (
-          <div
-            key={member.id}
-            className="flex items-center justify-between gap-3 rounded-[22px] border border-slate-200 bg-slate-50/70 p-3"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <AvatarToken name={profileLabel(member.profile)} />
               <div className="min-w-0">
-                <p className="truncate font-semibold text-slate-950">
-                  {profileLabel(member.profile)}
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="truncate font-semibold text-slate-950">
+                    {invite.invited_email}
+                  </p>
+                  <Badge tone={inviteStatusTone(invite.status)}>
+                    {invite.status}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {invite.role} · Invited {formatInviteDate(invite.created_at)}
                 </p>
-                <p className="mt-1 truncate text-xs text-slate-500">
-                  {member.profile?.email ?? "No email"}
-                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                <button
+                  type="button"
+                  onClick={() => void onCopyInvite(invite.invite_token)}
+                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:border-teal-200 hover:text-teal-800"
+                >
+                  <Copy className="size-3.5" aria-hidden="true" />
+                  Copy invite link
+                </button>
+                {canManage && invite.status === "pending" ? (
+                  <button
+                    type="button"
+                    onClick={() => void onCancelInvite(invite.id)}
+                    disabled={cancellingInviteId === invite.id}
+                    className="inline-flex h-9 items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {cancellingInviteId === invite.id ? (
+                      <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <XCircle className="size-3.5" aria-hidden="true" />
+                    )}
+                    Cancel invite
+                  </button>
+                ) : null}
               </div>
             </div>
-            <Badge tone={member.role === "owner" ? "teal" : "slate"}>
-              {member.role}
-            </Badge>
-          </div>
-        ))}
+          ))
+        )}
       </div>
-
-      {invites.length > 0 ? (
-        <div className="mt-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-            Invites
-          </p>
-          <div className="mt-3 space-y-2">
-            {invites.slice(0, 4).map((invite) => (
-              <div
-                key={invite.id}
-                className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm"
-              >
-                <span className="truncate text-slate-600">
-                  {invite.invited_email}
-                </span>
-                <Badge tone={invite.status === "pending" ? "amber" : "green"}>
-                  {invite.status}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </SectionCard>
+    </div>
   );
 }
 
@@ -1528,6 +1860,197 @@ function MiniDetail({ label, value }: { label: string; value: string }) {
   );
 }
 
+function AgentWorkflowPanel({
+  context,
+  onAskAi,
+}: {
+  context: {
+    groupName: string;
+    totalSpent: number;
+    budget: number;
+    unpaidCount: number;
+    topCategory: string;
+  };
+  onAskAi: () => void;
+}) {
+  const [steps, setSteps] = useState<AgentWorkflowStep[]>([]);
+  const [mode, setMode] = useState<"local-demo" | "axl">("local-demo");
+  const [message, setMessage] = useState(
+    "Running locally for demo. Configure Gensyn AXL endpoint to route agent messages peer-to-peer.",
+  );
+  const [loading, setLoading] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+
+  async function runWorkflow() {
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/agent-workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(context),
+      });
+
+      if (!response.ok) throw new Error("Agent workflow failed");
+
+      const result = (await response.json()) as {
+        mode: "local-demo" | "axl";
+        steps: AgentWorkflowStep[];
+        message: string;
+      };
+
+      setMode(result.mode);
+      setSteps(result.steps);
+      setMessage(result.message);
+    } catch {
+      setMessage("Agent workflow is running locally for demo.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const visibleSteps =
+    steps.length > 0
+      ? steps
+      : [
+          {
+            id: "receipt-agent",
+            name: "Receipt Agent",
+            role: "Reads receipts and payment slips",
+            status: "idle",
+            lastMessage: "Receipt Agent scanned the expense",
+            confidence: 0,
+            output: "",
+          },
+          {
+            id: "budget-agent",
+            name: "Budget Agent",
+            role: "Analyzes spending and budget impact",
+            status: "idle",
+            lastMessage: "Budget Agent updated spending impact",
+            confidence: 0,
+            output: "",
+          },
+          {
+            id: "settlement-agent",
+            name: "Settlement Agent",
+            role: "Prepares repayment options",
+            status: "idle",
+            lastMessage: "Settlement Agent prepared repayment options",
+            confidence: 0,
+            output: "",
+          },
+          {
+            id: "safety-agent",
+            name: "Safety Agent",
+            role: "Checks confidence before saving or payment",
+            status: "idle",
+            lastMessage: "Safety Agent requires user confirmation",
+            confidence: 0,
+            output: "",
+          },
+        ] satisfies AgentWorkflowStep[];
+
+  return (
+    <SectionCard elevated>
+      <SectionHeader
+        eyebrow="Agents"
+        title="Agent workflow"
+        description="Receipt, budget, settlement, and safety agents coordinate the next step."
+        action={
+          <Badge tone={mode === "axl" ? "teal" : "slate"}>
+            {mode === "axl" ? "Gensyn AXL ready" : "Local demo"}
+          </Badge>
+        }
+      />
+
+      <div className="mt-5 grid gap-3 lg:grid-cols-4">
+        {visibleSteps.map((step, index) => (
+          <div
+            key={step.id}
+            className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex size-8 items-center justify-center rounded-xl bg-slate-950 text-xs font-semibold text-white">
+                {index + 1}
+              </span>
+              <Badge
+                tone={
+                  step.status === "complete"
+                    ? "green"
+                    : step.status === "needs-review"
+                      ? "amber"
+                      : "slate"
+                }
+              >
+                {step.status === "needs-review" ? "review" : step.status}
+              </Badge>
+            </div>
+            <h3 className="mt-4 text-sm font-semibold text-slate-950">
+              {step.name}
+            </h3>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              {step.lastMessage}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+        {message}
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-3">
+        <PrimaryButton type="button" onClick={() => void runWorkflow()} disabled={loading}>
+          {loading ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Sparkles className="size-4" aria-hidden="true" />
+          )}
+          Run agent workflow
+        </PrimaryButton>
+        <button
+          type="button"
+          onClick={onAskAi}
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-5 text-sm font-semibold text-teal-800 shadow-sm hover:bg-teal-100"
+        >
+          <Bot className="size-4" aria-hidden="true" />
+          Ask AI
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowDetails((current) => !current)}
+          className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50"
+        >
+          View details
+        </button>
+      </div>
+
+      {showDetails ? (
+        <div className="mt-5 space-y-3">
+          {visibleSteps.map((step) => (
+            <div
+              key={`${step.id}-details`}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+            >
+              <p className="font-semibold text-slate-950">{step.name}</p>
+              <p className="mt-1 text-slate-500">{step.role}</p>
+              {step.output ? (
+                <p className="mt-2 text-slate-700">{step.output}</p>
+              ) : null}
+              {step.confidence > 0 ? (
+                <p className="mt-2 text-xs font-semibold text-slate-500">
+                  Confidence {Math.round(step.confidence * 100)}%
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </SectionCard>
+  );
+}
+
 function AssistantPanel({
   aiMessages,
   aiQuestion,
@@ -1680,7 +2203,7 @@ function BalancesPanel({
         title="Unpaid balances"
         description={`${unpaidCount} balance${
           unpaidCount === 1 ? "" : "s"
-        } ready for Locus Checkout Demo on ${defaultSettlementNetwork.label}.`}
+        } ready for checkout settlement.`}
         action={
           myDebts.length > 0 ? (
             <PrimaryButton
@@ -1712,7 +2235,6 @@ function BalancesPanel({
               </p>
               <p className="mt-1 text-sm text-slate-600">
                 Settlement currency: {defaultSettlementNetwork.settlementCurrency}.
-                Network: {defaultSettlementNetwork.label}.
               </p>
             </div>
             <Badge tone="teal">Method: Locus Checkout Demo</Badge>
@@ -2008,7 +2530,7 @@ function SettlementHistoryPanel({
     <SectionCard elevated>
       <SectionHeader
         eyebrow="Receipts"
-        title="Settlement history"
+        title="Payment history"
         description="Checkout receipts stay readable, with transaction hashes hidden until needed."
       />
       <div className="mt-6 space-y-3">
@@ -2062,18 +2584,51 @@ export function InviteAcceptance({ token }: { token: string }) {
     "idle",
   );
   const [message, setMessage] = useState("Checking invite");
+  const [preview, setPreview] = useState<InvitePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(true);
 
   useEffect(() => {
-    if (loading) return;
+    let cancelled = false;
 
-    if (!user) {
-      router.replace(`/login?next=/invite/${token}`);
-      return;
-    }
+    getInvitePreview(token)
+      .then((nextPreview) => {
+        if (cancelled) return;
+        setPreview(nextPreview);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPreview(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setPreviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (loading || previewLoading || !user || status !== "idle") return;
 
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
+
+      const userEmail = user.email?.toLowerCase() ?? "";
+      if (preview?.status && preview.status !== "pending") {
+        setStatus("error");
+        setMessage(`This invite is ${preview.status}.`);
+        return;
+      }
+
+      if (preview?.invited_email && preview.invited_email !== userEmail) {
+        setStatus("error");
+        setMessage("This invite was sent to another email.");
+        return;
+      }
+
       setStatus("accepting");
       setMessage("Accepting group invite");
 
@@ -2086,21 +2641,30 @@ export function InviteAcceptance({ token }: { token: string }) {
         })
         .catch((caught) => {
           if (cancelled) return;
+          const rawMessage =
+            caught instanceof Error ? caught.message : "Invite failed";
           setStatus("error");
-          setMessage(caught instanceof Error ? caught.message : "Invite failed");
+          setMessage(
+            rawMessage.toLowerCase().includes("different email")
+              ? "This invite was sent to another email."
+              : rawMessage,
+          );
         });
     });
 
     return () => {
       cancelled = true;
     };
-  }, [loading, router, token, user]);
+  }, [loading, preview, previewLoading, router, status, token, user]);
+
+  const groupName = preview?.group_name ?? "a SplitSafe group";
+  const loggedOut = !loading && !user;
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_44%,#effdfa_100%)] px-4">
       <SectionCard className="w-full max-w-xl text-center" elevated>
         <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">
-          {status === "error" ? (
+          {status === "error" || loggedOut ? (
             <MailPlus className="size-6" aria-hidden="true" />
           ) : (
             <Loader2
@@ -2110,9 +2674,33 @@ export function InviteAcceptance({ token }: { token: string }) {
           )}
         </div>
         <h1 className="mt-5 text-2xl font-semibold tracking-tight text-slate-950">
-          Group invite
+          You&apos;ve been invited to join {groupName}
         </h1>
-        <p className="mt-3 text-sm leading-6 text-slate-500">{message}</p>
+        <p className="mt-3 text-sm leading-6 text-slate-500">
+          {loggedOut
+            ? "Sign in to accept this invite."
+            : previewLoading
+              ? "Loading invite details."
+              : message}
+        </p>
+        {preview ? (
+          <div className="mt-5 grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left text-sm">
+            <CheckoutSummaryRow label="Role" value={preview.role} />
+            <CheckoutSummaryRow label="Status" value={preview.status} />
+            <CheckoutSummaryRow
+              label="Invited email"
+              value={preview.invited_email}
+            />
+          </div>
+        ) : null}
+        {loggedOut ? (
+          <Link
+            href={`/login?next=/invite/${token}`}
+            className="mt-6 inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white"
+          >
+            Sign in to accept invite
+          </Link>
+        ) : null}
         {status === "error" ? (
           <Link
             href="/dashboard"

@@ -21,13 +21,12 @@ import {
 } from "@/components/ui-kit";
 import {
   defaultSettlementNetwork,
-  fallbackSettlementNetwork,
 } from "@/lib/networks";
 
 const features = [
   {
     title: "Group budgets",
-    description: "Spin up private account-based budgets for dinners, trips, dorms, and small teams.",
+    description: "Create private groups for dinners, trips, dorms, families, and small teams.",
     icon: WalletCards,
   },
   {
@@ -37,7 +36,7 @@ const features = [
   },
   {
     title: "Checkout settlement",
-    description: `Settle balances with ${defaultSettlementNetwork.label} demo receipts and explorer links.`,
+    description: "Clear balances with simple checkout-style payment records.",
     icon: Landmark,
   },
   {
@@ -52,8 +51,8 @@ const useCases = ["Friends", "Trips", "Roommates", "Family", "Small teams"];
 const steps = [
   "Create a private group",
   "Invite members by email",
-  "Split expenses automatically",
-  `Settle on ${defaultSettlementNetwork.shortLabel}`,
+  "Scan or add expenses",
+  "Settle when ready",
 ];
 
 export default function Home() {
@@ -94,13 +93,11 @@ export default function Home() {
                 AI + wallets for shared spending
               </Badge>
               <h1 className="mt-6 max-w-full text-4xl font-semibold leading-[1.02] tracking-tight text-slate-950 sm:max-w-2xl sm:text-5xl lg:text-6xl">
-                AI-powered onchain group budgeting
+                Split expenses with AI, receipts, and simple settlement.
               </h1>
               <p className="mt-6 max-w-full text-base leading-8 text-slate-600 sm:max-w-xl sm:text-lg">
-                SplitSafe gives friends, students, families, and small teams a
-                polished group to budget, split expenses, connect wallets, and
-                settle on {defaultSettlementNetwork.label} without touching
-                mainnet funds.
+                Create private groups, scan receipts or payment slips, see who
+                owes who, and settle faster.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:gap-4">
                 <Link
@@ -162,11 +159,11 @@ export default function Home() {
                 Account-ready flow
               </Badge>
               <h2 className="mt-6 text-4xl font-semibold tracking-tight sm:text-5xl">
-                From dinner receipt to testnet settlement in minutes.
+                From dinner receipt to settled balance in minutes.
               </h2>
               <p className="mt-5 text-base leading-7 text-slate-300">
-                The MVP is built around a single judge-friendly path: sign in,
-                create a group, invite a member, ask AI, and settle a balance.
+                SplitSafe keeps the main flow simple: create a group, invite
+                members, scan or add an expense, ask AI, and settle a balance.
               </p>
               <Link href="/dashboard" className="mt-8 inline-flex">
                 <span className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-white px-5 text-sm font-semibold text-slate-950 hover:-translate-y-0.5">
@@ -189,10 +186,10 @@ export default function Home() {
                     {index === 0
                       ? "Set the shared budget and currency."
                       : index === 1
-                        ? "Accept invites with Supabase Auth accounts."
+                        ? "Share an invite link or add a member by email."
                         : index === 2
-                          ? "Split paid expenses across selected members."
-                          : "Record the tx hash and mark balances settled."}
+                          ? "Review extracted details before saving."
+                          : "Record a clean payment receipt when done."}
                   </p>
                 </div>
               ))}
@@ -230,17 +227,17 @@ export default function Home() {
       <section className="border-y border-slate-200 bg-slate-50/80">
         <div className="mx-auto grid w-full max-w-7xl gap-5 px-5 py-16 sm:px-8 lg:grid-cols-3">
           <ValueItem
-            title="Testnet safe"
-            body={`Built for ${defaultSettlementNetwork.label}, with ${fallbackSettlementNetwork.label} fallback and mock settlement.`}
+            title="Testnet only"
+            body={`Payments are demo-safe on ${defaultSettlementNetwork.shortLabel}, with mock settlement when no wallet is connected.`}
           />
           <ValueItem title="AI resilient" body="Falls back to deterministic summaries without API keys." />
-          <ValueItem title="Deployable" body="Supabase-ready, Vercel-ready, and easy to present." />
+          <ValueItem title="Private groups" body="Only approved members can open group expenses, balances, and invites." />
         </div>
       </section>
 
       <footer className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-5 py-10 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <BrandMark />
-        <p>Built for ETHGlobal Open Agents. Testnet only.</p>
+        <p>Built for shared spending teams. Testnet only.</p>
       </footer>
     </main>
   );
@@ -259,7 +256,7 @@ function ProductPreview() {
               Thailand Trip
             </h3>
             <p className="mt-1 text-sm text-slate-500">
-              3 accounts - {defaultSettlementNetwork.shortLabel}
+              3 members · testnet settlement
             </p>
           </div>
           <Badge tone="green">
