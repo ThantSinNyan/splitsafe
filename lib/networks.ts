@@ -48,7 +48,7 @@ export const settlementNetworks = {
     rpcEnvVar: "NEXT_PUBLIC_0G_GALILEO_RPC_URL",
     explorerUrl: "https://chainscan-galileo.0g.ai",
     nativeSymbol: "0G",
-    settlementCurrency: "USDC demo",
+    settlementCurrency: "USDC",
     role: "default",
     aliases: [
       "0g",
@@ -70,7 +70,7 @@ export const settlementNetworks = {
     rpcEnvVar: "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL",
     explorerUrl: "https://sepolia.basescan.org",
     nativeSymbol: "ETH",
-    settlementCurrency: "USDC demo",
+    settlementCurrency: "USDC",
     role: "fallback",
     aliases: ["base", "base sepolia", "base-sepolia"],
   },
@@ -122,7 +122,9 @@ export function normalizeSettlementNetworkId(
 export function settlementNetworkLabel(value: string | null | undefined) {
   const networkId = normalizeSettlementNetworkId(value);
 
-  return networkId ? settlementNetworks[networkId].label : value || defaultSettlementNetwork.label;
+  return networkId
+    ? settlementNetworks[networkId].shortLabel
+    : value || defaultSettlementNetwork.shortLabel;
 }
 
 export function settlementNetworkTxUrl(

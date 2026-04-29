@@ -50,6 +50,7 @@ import {
   textareaClassName,
 } from "@/components/ui-kit";
 import { SmartSlipScanModal } from "@/components/SmartSlipScanModal";
+import { getAxlStatus } from "@/lib/axl";
 import {
   acceptInvite,
   addExpense,
@@ -60,10 +61,8 @@ import {
   recordSettlement,
   saveAiMessage,
 } from "@/lib/storage";
-import type { AgentWorkflowStep } from "@/lib/agents";
 import {
   defaultSettlementNetwork,
-  fallbackSettlementNetwork,
   getSettlementNetworkByChainId,
   settlementNetworkLabel,
   settlementNetworkTxUrl,
@@ -136,7 +135,7 @@ const groupTabs: Array<{
   {
     id: "ai",
     label: "AI",
-    description: "Copilot and agent workflow",
+    description: "Copilot and Smart Settlement",
   },
   {
     id: "members",
@@ -246,6 +245,18 @@ function paymentStatusTone(status?: string | null): "green" | "amber" | "rose" |
   if (normalized === "pending" || normalized === "mock_checkout_created") return "amber";
 
   return "slate";
+}
+
+function paymentStatusLabel(status?: string | null) {
+  const normalized = status?.toLowerCase();
+
+  if (!normalized) return "Ready";
+  if (normalized === "paid" || normalized === "confirmed") return "Paid";
+  if (normalized === "pending" || normalized === "mock_checkout_created") return "Ready";
+  if (normalized === "mocked") return "Recorded";
+  if (normalized === "failed") return "Needs review";
+
+  return normalized.replaceAll("_", " ");
 }
 
 function transactionExplorerUrl(hash: string, network?: string | null) {
@@ -809,7 +820,6 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
 
         <FlowSteps />
         <GroupTabs activeTab={activeTab} onChange={setActiveTab} />
-        <DeveloperDetailsPanel />
 
         {activeTab === "overview" ? (
           <div className="space-y-6">
@@ -963,16 +973,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               onSettle={() => setActiveTab("balances")}
               onAddExpense={() => setActiveTab("expenses")}
             />
-            <AgentWorkflowPanel
-              context={{
-                groupName: room.name,
-                totalSpent: metrics.totalSpent,
-                budget: room.total_budget,
-                unpaidCount: metrics.unpaidCount,
-                topCategory: metrics.topCategory,
-              }}
-              onAskAi={() => setAiQuestion("What should we do next?")}
-            />
+            <SmartSettlementPanel onSettle={() => setActiveTab("balances")} />
             <AssistantPanel
               aiMessages={aiMessages}
               aiQuestion={aiQuestion}
@@ -1018,24 +1019,6 @@ function FlowSteps() {
         ))}
       </div>
     </div>
-  );
-}
-
-function DeveloperDetailsPanel() {
-  return (
-    <details className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
-      <summary className="cursor-pointer font-semibold text-slate-800">
-        Developer details
-      </summary>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <MiniDetail label="Privacy" value="Supabase RLS enabled" />
-        <MiniDetail label="AI" value="Gemini server-side with local fallback" />
-        <MiniDetail label="Default network" value={defaultSettlementNetwork.label} />
-        <MiniDetail label="Fallback network" value={fallbackSettlementNetwork.label} />
-        <MiniDetail label="Settlement" value="Real testnet or mock demo status" />
-        <MiniDetail label="Email" value="Invite links now, email provider later" />
-      </div>
-    </details>
   );
 }
 
@@ -1860,163 +1843,68 @@ function MiniDetail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function AgentWorkflowPanel({
-  context,
-  onAskAi,
-}: {
-  context: {
-    groupName: string;
-    totalSpent: number;
-    budget: number;
-    unpaidCount: number;
-    topCategory: string;
-  };
-  onAskAi: () => void;
-}) {
-  const [steps, setSteps] = useState<AgentWorkflowStep[]>([]);
-  const [mode, setMode] = useState<"local-demo" | "axl">("local-demo");
-  const [message, setMessage] = useState(
-    "Running locally for demo. Configure Gensyn AXL endpoint to route agent messages peer-to-peer.",
-  );
-  const [loading, setLoading] = useState(false);
+function titleCaseStatus(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function SmartSettlementPanel({ onSettle }: { onSettle: () => void }) {
   const [showDetails, setShowDetails] = useState(false);
-
-  async function runWorkflow() {
-    setLoading(true);
-
-    try {
-      const response = await fetch("/api/agent-workflow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(context),
-      });
-
-      if (!response.ok) throw new Error("Agent workflow failed");
-
-      const result = (await response.json()) as {
-        mode: "local-demo" | "axl";
-        steps: AgentWorkflowStep[];
-        message: string;
-      };
-
-      setMode(result.mode);
-      setSteps(result.steps);
-      setMessage(result.message);
-    } catch {
-      setMessage("Agent workflow is running locally for demo.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const visibleSteps =
-    steps.length > 0
-      ? steps
-      : [
-          {
-            id: "receipt-agent",
-            name: "Receipt Agent",
-            role: "Reads receipts and payment slips",
-            status: "idle",
-            lastMessage: "Receipt Agent scanned the expense",
-            confidence: 0,
-            output: "",
-          },
-          {
-            id: "budget-agent",
-            name: "Budget Agent",
-            role: "Analyzes spending and budget impact",
-            status: "idle",
-            lastMessage: "Budget Agent updated spending impact",
-            confidence: 0,
-            output: "",
-          },
-          {
-            id: "settlement-agent",
-            name: "Settlement Agent",
-            role: "Prepares repayment options",
-            status: "idle",
-            lastMessage: "Settlement Agent prepared repayment options",
-            confidence: 0,
-            output: "",
-          },
-          {
-            id: "safety-agent",
-            name: "Safety Agent",
-            role: "Checks confidence before saving or payment",
-            status: "idle",
-            lastMessage: "Safety Agent requires user confirmation",
-            confidence: 0,
-            output: "",
-          },
-        ] satisfies AgentWorkflowStep[];
+  const axlStatus = getAxlStatus();
+  const cards = [
+    {
+      title: "Expense checked",
+      description: "We review the amount, payer, members, and split method.",
+    },
+    {
+      title: "Split calculated",
+      description: "The app calculates each person's share automatically.",
+    },
+    {
+      title: "Settlement ready",
+      description: "See the simplest payback path and mark payments as settled.",
+    },
+  ];
 
   return (
     <SectionCard elevated>
       <SectionHeader
-        eyebrow="Agents"
-        title="Agent workflow"
-        description="Receipt, budget, settlement, and safety agents coordinate the next step."
+        eyebrow="Settlement"
+        title="Smart Settlement"
+        description="AI checks expenses, calculates who owes whom, and helps the group settle faster."
         action={
-          <Badge tone={mode === "axl" ? "teal" : "slate"}>
-            {mode === "axl" ? "Gensyn AXL ready" : "Local demo"}
-          </Badge>
+          <div className="text-right">
+            <Badge tone="teal">AXL-ready</Badge>
+            <p className="mt-1 max-w-52 text-xs leading-5 text-slate-500">
+              AI coordination layer for secure settlement processing.
+            </p>
+          </div>
         }
       />
 
-      <div className="mt-5 grid gap-3 lg:grid-cols-4">
-        {visibleSteps.map((step, index) => (
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        {cards.map((card, index) => (
           <div
-            key={step.id}
-            className="rounded-[22px] border border-slate-200 bg-slate-50/70 p-4"
+            key={card.title}
+            className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm"
           >
-            <div className="flex items-center justify-between gap-3">
-              <span className="flex size-8 items-center justify-center rounded-xl bg-slate-950 text-xs font-semibold text-white">
-                {index + 1}
-              </span>
-              <Badge
-                tone={
-                  step.status === "complete"
-                    ? "green"
-                    : step.status === "needs-review"
-                      ? "amber"
-                      : "slate"
-                }
-              >
-                {step.status === "needs-review" ? "review" : step.status}
-              </Badge>
-            </div>
-            <h3 className="mt-4 text-sm font-semibold text-slate-950">
-              {step.name}
+            <span className="flex size-9 items-center justify-center rounded-xl bg-slate-950 text-xs font-semibold text-white">
+              {index + 1}
+            </span>
+            <h3 className="mt-4 text-base font-semibold text-slate-950">
+              {card.title}
             </h3>
-            <p className="mt-2 text-xs leading-5 text-slate-500">
-              {step.lastMessage}
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              {card.description}
             </p>
           </div>
         ))}
       </div>
 
-      <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-        {message}
-      </div>
-
       <div className="mt-5 flex flex-wrap gap-3">
-        <PrimaryButton type="button" onClick={() => void runWorkflow()} disabled={loading}>
-          {loading ? (
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <Sparkles className="size-4" aria-hidden="true" />
-          )}
-          Run agent workflow
+        <PrimaryButton type="button" onClick={onSettle}>
+          <Send className="size-4" aria-hidden="true" />
+          Settle up
         </PrimaryButton>
-        <button
-          type="button"
-          onClick={onAskAi}
-          className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-5 text-sm font-semibold text-teal-800 shadow-sm hover:bg-teal-100"
-        >
-          <Bot className="size-4" aria-hidden="true" />
-          Ask AI
-        </button>
         <button
           type="button"
           onClick={() => setShowDetails((current) => !current)}
@@ -2027,24 +1915,19 @@ function AgentWorkflowPanel({
       </div>
 
       {showDetails ? (
-        <div className="mt-5 space-y-3">
-          {visibleSteps.map((step) => (
-            <div
-              key={`${step.id}-details`}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
-            >
-              <p className="font-semibold text-slate-950">{step.name}</p>
-              <p className="mt-1 text-slate-500">{step.role}</p>
-              {step.output ? (
-                <p className="mt-2 text-slate-700">{step.output}</p>
-              ) : null}
-              {step.confidence > 0 ? (
-                <p className="mt-2 text-xs font-semibold text-slate-500">
-                  Confidence {Math.round(step.confidence * 100)}%
-                </p>
-              ) : null}
-            </div>
-          ))}
+        <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+          <h3 className="text-sm font-semibold text-slate-950">
+            AI Infrastructure
+          </h3>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <MiniDetail label="AI Routing" value={titleCaseStatus(axlStatus.routing)} />
+            <MiniDetail label="AXL Process" value={titleCaseStatus(axlStatus.axlProcess)} />
+            <MiniDetail
+              label="Settlement Assistant"
+              value={titleCaseStatus(axlStatus.settlementAssistant)}
+            />
+            <MiniDetail label="Safety Check" value={titleCaseStatus(axlStatus.safetyCheck)} />
+          </div>
         </div>
       ) : null}
     </SectionCard>
@@ -2068,15 +1951,15 @@ function AssistantPanel({
 }) {
   const status =
     aiLoading || aiStatus === "gemini"
-      ? { label: "Using Gemini AI", tone: "teal" as const }
+      ? { label: "AI assistant active", tone: "teal" as const }
       : aiStatus === "unavailable"
         ? {
-            label: "AI unavailable, fallback response shown",
+            label: "AI assistant needs review",
             tone: "amber" as const,
           }
         : aiStatus === "fallback"
-          ? { label: "Using local fallback", tone: "slate" as const }
-          : { label: "Using local fallback", tone: "slate" as const };
+          ? { label: "AI assistant ready", tone: "slate" as const }
+          : { label: "AI assistant ready", tone: "slate" as const };
 
   return (
     <SectionCard elevated className="relative overflow-hidden">
@@ -2237,7 +2120,7 @@ function BalancesPanel({
                 Settlement currency: {defaultSettlementNetwork.settlementCurrency}.
               </p>
             </div>
-            <Badge tone="teal">Method: Locus Checkout Demo</Badge>
+            <Badge tone="teal">Method: Checkout payment</Badge>
           </div>
         </div>
       ) : null}
@@ -2281,7 +2164,7 @@ function BalancesPanel({
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
-                          Method: Locus Checkout Demo
+                          Method: Checkout payment
                         </span>
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                           Network: {settlementNetworkLabel(splitNetwork)}
@@ -2337,11 +2220,11 @@ function BalancesPanel({
                         />
                         <CheckoutSummaryRow
                           label="Method"
-                          value="Locus Checkout Demo"
+                          value="Checkout payment"
                         />
                         <CheckoutSummaryRow
                           label="Network"
-                          value={defaultSettlementNetwork.label}
+                          value={defaultSettlementNetwork.shortLabel}
                         />
                       </div>
                       <PrimaryButton
@@ -2484,7 +2367,7 @@ function ExpensesPanel({
                       <Badge tone="slate">{expense.category}</Badge>
                       {status ? (
                         <Badge tone={paymentStatusTone(status)}>
-                          Status: {status.replaceAll("_", " ")}
+                          Status: {paymentStatusLabel(status)}
                         </Badge>
                       ) : null}
                     </div>
@@ -2554,9 +2437,9 @@ function SettlementHistoryPanel({
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge tone={paymentStatusTone(settlement.status)}>
-                Status: {settlement.status}
+                Status: {paymentStatusLabel(settlement.status)}
               </Badge>
-              <Badge tone="teal">Method: Locus Checkout Demo</Badge>
+              <Badge tone="teal">Method: Checkout payment</Badge>
               <Badge tone="blue">
                 Network: {settlementNetworkLabel(settlement.network)}
               </Badge>

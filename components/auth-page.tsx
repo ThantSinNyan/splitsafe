@@ -149,7 +149,7 @@ function AuthPageContent() {
                 "Private groups",
                 "Smart receipt scan",
                 "AI spending assistant",
-                "Testnet settlement",
+                "Simple settlement",
               ].map((item) => (
                   <div
                     key={item}
@@ -207,11 +207,11 @@ function AuthPageContent() {
               ) : (
                 <UserRoundCheck className="size-4" aria-hidden="true" />
               )}
-              Try demo mode
+              Continue as guest
             </button>
             <p className="mt-2 text-center text-xs leading-5 text-slate-500">
-              Loads an isolated local demo account with sample groups, balances,
-              messages, and demo payment references.
+              Opens a guest account with starter groups, balances, messages, and
+              payment records.
             </p>
 
             <div className="my-6 flex items-center gap-3">

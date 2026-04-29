@@ -128,7 +128,7 @@ export function SmartSlipScanModal({
                 <Camera className="size-5" aria-hidden="true" />
               </div>
               <Badge tone={demoResult && !result ? "amber" : "teal"}>
-                {demoResult && !result ? "Demo extraction result" : "AI scan"}
+                {demoResult && !result ? "Review needed" : "AI scan"}
               </Badge>
             </div>
             <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">

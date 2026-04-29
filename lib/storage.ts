@@ -229,7 +229,7 @@ export async function ensureProfile(user: User) {
   const supabase = requireSupabaseClient();
   const fallbackName = user.user_metadata?.full_name ?? user.user_metadata?.name;
   const defaultName = user.is_anonymous
-    ? "Demo tester"
+    ? "Guest user"
     : user.email?.split("@")[0] ?? "SplitSafe user";
 
   const { data, error } = await supabase
@@ -368,7 +368,7 @@ export async function createSampleWorkspace() {
 
 export async function resetDemoData() {
   if (!isLocalDemoMode()) {
-    throw new Error("Demo reset is only available in demo mode.");
+    throw new Error("Guest reset is only available for guest accounts.");
   }
 
   return resetLocalDemoData();

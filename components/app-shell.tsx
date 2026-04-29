@@ -78,12 +78,12 @@ export function AppShell({
                     </p>
                     {isDemoUser ? (
                       <Badge tone="teal" className="px-2 py-0.5 text-[10px]">
-                        Demo
+                        Guest
                       </Badge>
                     ) : null}
                   </div>
                   <p className="truncate text-xs text-slate-500">
-                    {isDemoUser ? "Temporary account" : profile?.email ?? "Signed in"}
+                    {isDemoUser ? "Guest account" : profile?.email ?? "Signed in"}
                   </p>
                 </div>
                 <button

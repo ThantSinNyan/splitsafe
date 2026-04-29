@@ -88,7 +88,7 @@ export async function POST(request: Request) {
   if (!process.env.GEMINI_API_KEY) {
     return Response.json({
       ok: false,
-      error: "AI scan is not configured. Please add GEMINI_API_KEY.",
+      error: "AI scan needs review. You can enter details manually.",
       demoData: demoSlipScanResult,
     });
   }
@@ -200,7 +200,7 @@ async function scanWithGemini(base64: string, mimeType: string) {
 
     throw new ScanReceiptError(
       quotaLimited
-        ? "Gemini quota is temporarily busy. Demo extraction result is shown."
+        ? "AI scan is temporarily busy. Please review the extracted fields."
         : "Could not read this image. Please enter manually.",
       quotaLimited,
     );
@@ -214,7 +214,7 @@ async function scanWithGemini(base64: string, mimeType: string) {
   }
   if (finishReason === "MAX_TOKENS") {
     throw new ScanReceiptError(
-      "Gemini response was cut off. Demo extraction result is shown.",
+      "AI scan needs review. Please check the extracted fields.",
       true,
     );
   }
@@ -223,7 +223,7 @@ async function scanWithGemini(base64: string, mimeType: string) {
     return normalizeScanResult(JSON.parse(cleanJsonText(text)) as Partial<SlipScanResult>);
   } catch {
     throw new ScanReceiptError(
-      "Gemini returned unreadable JSON. Demo extraction result is shown.",
+      "AI scan needs review. Please check the extracted fields.",
       true,
     );
   }

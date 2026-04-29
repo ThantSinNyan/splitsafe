@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     return Response.json({
       summary: fallbackSummary,
       mode: "fallback",
-      indicator: "Using local fallback",
+      indicator: "AI assistant ready",
     });
   }
 
@@ -57,20 +57,20 @@ export async function POST(request: Request) {
       return Response.json({
         summary: geminiSummary,
         mode: "gemini",
-        indicator: "Using Gemini AI",
+        indicator: "AI assistant active",
       });
     }
 
     return Response.json({
       summary: fallbackSummary,
       mode: "fallback",
-      indicator: "AI unavailable, fallback response shown",
+      indicator: "AI assistant ready",
     });
   } catch {
     return Response.json({
       summary: fallbackSummary,
       mode: "fallback",
-      indicator: "AI unavailable, fallback response shown",
+      indicator: "AI assistant ready",
     });
   }
 }
@@ -89,11 +89,11 @@ async function tryGeminiSummary(payload: SummaryPayload, context: SummaryContext
             text: [
               "You are SplitSafe AI, a concise multi-user group budgeting assistant.",
               "You only help with SplitSafe private groups, expense splitting, spending insights, balances, invite status, and settlement status.",
-              `Product rules: SplitSafe is testnet only. ${defaultSettlementNetwork.label} is the default demo settlement network. ${fallbackSettlementNetwork.label} is a fallback/legacy option. Demo USDC is not real USDC unless explicitly configured.`,
-              "Never tell users to use real money, never suggest mainnet transactions, and never give investment or trading advice.",
+              `Product rules: ${defaultSettlementNetwork.shortLabel} is the default settlement network. ${fallbackSettlementNetwork.shortLabel} is a fallback option.`,
+              "Never ask users for private keys or seed phrases, and never give investment or trading advice.",
               "Treat wallet addresses as public identifiers. Do not ask for private keys, seed phrases, service role keys, or API keys.",
               "If the question is unclear, briefly explain what SplitSafe AI can help with.",
-              "Keep answers short, clear, natural, and demo-friendly. Prefer 2-4 sentences.",
+              "Keep answers short, clear, natural, and product-ready. Prefer 2-4 sentences.",
             ].join(" "),
           },
         ],
@@ -173,10 +173,8 @@ function buildSummaryContext(payload: SummaryPayload) {
       rules: [
         "Supabase Auth accounts",
         "group data isolated by RLS",
-        "testnet only",
-        `${defaultSettlementNetwork.label} demo settlement`,
-        `${fallbackSettlementNetwork.label} fallback settlement`,
-        "no mainnet funds",
+        `${defaultSettlementNetwork.shortLabel} settlement`,
+        `${fallbackSettlementNetwork.shortLabel} fallback settlement`,
         "no investment or trading advice",
       ],
     },

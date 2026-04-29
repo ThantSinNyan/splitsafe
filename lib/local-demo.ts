@@ -134,8 +134,8 @@ export function stopLocalDemoMode() {
 export function getLocalDemoProfile() {
   return profileById(readState(), localDemoUserId) ?? {
     id: localDemoUserId,
-    name: "Alex Demo",
-    email: "demo@splitsafe.app",
+    name: "Alex Carter",
+    email: "alex@splitsafe.app",
     avatar_url: null,
     wallet_address: null,
     created_at: nowIso(),
@@ -150,12 +150,12 @@ export function getLocalDemoUser() {
       providers: ["local-demo"],
     },
     user_metadata: {
-      name: "Alex Demo",
-      full_name: "Alex Demo",
+      name: "Alex Carter",
+      full_name: "Alex Carter",
     },
     aud: "authenticated",
     created_at: nowIso(),
-    email: "demo@splitsafe.app",
+    email: "alex@splitsafe.app",
     is_anonymous: true,
   } as User;
 }
@@ -306,7 +306,7 @@ export function getLocalInvitePreview(inviteToken: string) {
 export function acceptLocalInvite(inviteToken: string) {
   const state = readState();
   const invite = state.invites.find((item) => item.invite_token === inviteToken);
-  if (!invite) throw new Error("Invite not found in local demo mode.");
+  if (!invite) throw new Error("Invite not found in guest mode.");
 
   invite.status = "accepted";
   invite.accepted_at = nowIso();
@@ -317,7 +317,7 @@ export function acceptLocalInvite(inviteToken: string) {
 export function cancelLocalInvite(inviteId: string) {
   const state = readState();
   const invite = state.invites.find((item) => item.id === inviteId);
-  if (!invite) throw new Error("Invite not found in local demo mode.");
+  if (!invite) throw new Error("Invite not found in guest mode.");
 
   if (invite.status === "pending") {
     invite.status = "expired";
@@ -370,10 +370,10 @@ export function addLocalExpense(
 export function recordLocalSettlement(input: SettlementInput) {
   const state = readState();
   const split = state.splits.find((item) => item.id === input.splitId);
-  if (!split) throw new Error("Split not found in local demo mode.");
+  if (!split) throw new Error("Split not found in guest mode.");
 
   const expense = state.expenses.find((item) => item.id === split.expense_id);
-  if (!expense) throw new Error("Expense not found in local demo mode.");
+  if (!expense) throw new Error("Expense not found in guest mode.");
 
   const settledAt = nowIso();
   split.status = "paid";

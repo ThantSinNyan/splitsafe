@@ -216,7 +216,7 @@ begin
       new.raw_user_meta_data ->> 'full_name',
       new.raw_user_meta_data ->> 'name',
       split_part(new.email, '@', 1),
-      'Demo tester'
+      'SplitSafe user'
     ),
     lower(new.email),
     new.raw_user_meta_data ->> 'avatar_url'

@@ -37,7 +37,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 function profileFromUser(user: User): Profile {
   const metadata = user.user_metadata ?? {};
   const fallbackName = user.is_anonymous
-    ? "Alex Demo"
+    ? "Alex Carter"
     : user.email?.split("@")[0] ?? "SplitSafe user";
 
   return {

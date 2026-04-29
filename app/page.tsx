@@ -227,8 +227,8 @@ export default function Home() {
       <section className="border-y border-slate-200 bg-slate-50/80">
         <div className="mx-auto grid w-full max-w-7xl gap-5 px-5 py-16 sm:px-8 lg:grid-cols-3">
           <ValueItem
-            title="Testnet only"
-            body={`Payments are demo-safe on ${defaultSettlementNetwork.shortLabel}, with mock settlement when no wallet is connected.`}
+            title="Payment ready"
+            body={`Wallet settlement is prepared on ${defaultSettlementNetwork.shortLabel}, with manual records when no wallet is connected.`}
           />
           <ValueItem title="AI resilient" body="Falls back to deterministic summaries without API keys." />
           <ValueItem title="Private groups" body="Only approved members can open group expenses, balances, and invites." />
@@ -237,7 +237,7 @@ export default function Home() {
 
       <footer className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-5 py-10 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <BrandMark />
-        <p>Built for shared spending teams. Testnet only.</p>
+        <p>Built for shared spending teams.</p>
       </footer>
     </main>
   );
@@ -256,7 +256,7 @@ function ProductPreview() {
               Thailand Trip
             </h3>
             <p className="mt-1 text-sm text-slate-500">
-              3 members · testnet settlement
+              3 members · settlement ready
             </p>
           </div>
           <Badge tone="green">

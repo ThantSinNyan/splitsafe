@@ -14,9 +14,9 @@ import { roundMoney } from "@/lib/utils";
 export const demoUserId = "demo-alex";
 
 const contractAddress = "0x7A3bC9dE12F45a6789bCdEf0123456789AbCdEf0";
-const checkoutSessionId = "locus_demo_checkout_001";
+const checkoutSessionId = "checkout_session_001";
 const network = defaultSettlementNetwork.id;
-const settlementMethod = "Locus Checkout Demo";
+const settlementMethod = "Checkout payment";
 
 const demoTransactionHashes = [
   "0x8f3a9c2b7d6e4f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a",
@@ -73,15 +73,15 @@ function profile(
 }
 
 const profiles = [
-  profile(demoUserId, "Alex Demo", "demo@splitsafe.app", "demo-wallet-alex"),
-  profile("demo-maya", "Maya Chen", "maya.chen@example.test", "demo-wallet-maya"),
-  profile("demo-chris", "Chris Wong", "chris.wong@example.test", "demo-wallet-chris"),
-  profile("demo-thant", "Thant Nyan", "thant.nyan@example.test", "demo-wallet-thant"),
-  profile("demo-yuki", "Yuki Tanaka", "yuki.tanaka@example.test", "demo-wallet-yuki"),
-  profile("demo-min", "Min Zaw", "min.zaw@example.test", "demo-wallet-min"),
-  profile("demo-sarah", "Sarah Lee", "sarah.lee@example.test", "demo-wallet-sarah"),
-  profile("demo-bot", "Builder Bot", "builder.bot@example.test", "demo-wallet-builder"),
-  profile("demo-jamie", "Jamie Dev", "jamie.dev@example.test", "demo-wallet-jamie"),
+  profile(demoUserId, "Alex Carter", "alex@splitsafe.app", "wallet-alex"),
+  profile("demo-maya", "Maya Chen", "maya.chen@example.com", "wallet-maya"),
+  profile("demo-chris", "Chris Wong", "chris.wong@example.com", "wallet-chris"),
+  profile("demo-thant", "Thant Nyan", "thant.nyan@example.com", "wallet-thant"),
+  profile("demo-yuki", "Yuki Tanaka", "yuki.tanaka@example.com", "wallet-yuki"),
+  profile("demo-min", "Min Zaw", "min.zaw@example.com", "wallet-min"),
+  profile("demo-sarah", "Sarah Lee", "sarah.lee@example.com", "wallet-sarah"),
+  profile("demo-bot", "Builder Bot", "builder.bot@example.com", "wallet-builder"),
+  profile("demo-jamie", "Jamie Dev", "jamie.dev@example.com", "wallet-jamie"),
 ];
 
 function profileById(userId: string) {
@@ -97,7 +97,7 @@ function paymentNotes(
   return [
     note,
     "",
-    "Demo payment references only.",
+    "Payment reference recorded.",
     `paymentStatus: ${paymentStatus}`,
     `checkoutStatus: ${checkoutStatus}`,
     `contractAddress: ${contractAddress}`,
@@ -149,7 +149,7 @@ function buildWorkspace(
       amount: expenseSeed.amount,
       category: expenseSeed.category,
       notes: paymentNotes(
-        expenseSeed.notes ?? "Sample demo expense.",
+        expenseSeed.notes ?? "Shared expense.",
         paymentStatus,
         checkoutStatus,
         paymentStatus === "paid" ? txHash : undefined,
@@ -188,9 +188,9 @@ function buildWorkspace(
             expense_split_id: splitId,
             sender_user_id: userId,
             receiver_user_id: expenseSeed.paidBy,
-            sender_wallet: profileById(userId)?.wallet_address ?? "demo-wallet-sender",
+            sender_wallet: profileById(userId)?.wallet_address ?? "wallet-sender",
             receiver_wallet:
-              profileById(expenseSeed.paidBy)?.wallet_address ?? "demo-wallet-receiver",
+              profileById(expenseSeed.paidBy)?.wallet_address ?? "wallet-receiver",
             amount: share,
             tx_hash: txHash,
             network,
@@ -280,7 +280,7 @@ export function createDemoSeedState(): DemoSeedState {
         category: "supplies",
         paidBy: demoUserId,
         paymentStatus: "failed",
-        notes: "Demo failed payment reference is kept for status testing.",
+        notes: "Payment reference needs review.",
       },
     ],
     [
@@ -339,11 +339,11 @@ export function createDemoSeedState(): DemoSeedState {
     900,
   );
 
-  const hackathon = buildWorkspace(
+  const projectTeam = buildWorkspace(
     {
-      id: "demo-group-hackathon-team",
+      id: "demo-group-project-team",
       owner_id: demoUserId,
-      name: "Hackathon Team",
+      name: "Project Team",
       description: "Shared spending for project tools, credits, and deployment.",
       currency: "USD",
       total_budget: 150,
@@ -356,22 +356,22 @@ export function createDemoSeedState(): DemoSeedState {
     [
       {
         id: "demo-expense-gemini-credits",
-        title: "Gemini API testing credits",
+        title: "AI assistant credits",
         amount: 10,
         category: "supplies",
         paidBy: demoUserId,
         paidSplitUserIds: ["demo-bot"],
         paymentStatus: "paid",
         checkoutStatus: "paid",
-        notes: "Credits used for AI summary and Smart Slip Scan testing.",
+        notes: "Credits used for AI summary and Smart Slip Scan.",
       },
       {
         id: "demo-expense-locus-credits",
-        title: "Locus checkout testing credits",
+        title: "Payment processing credits",
         amount: 10,
         category: "supplies",
         paidBy: "demo-jamie",
-        notes: "Mock checkout testing for the settlement demo.",
+        notes: "Payment processing setup.",
       },
       {
         id: "demo-expense-domain-name",
@@ -379,7 +379,7 @@ export function createDemoSeedState(): DemoSeedState {
         amount: 14,
         category: "supplies",
         paidBy: "demo-bot",
-        notes: "Demo domain reference for the hackathon deck.",
+        notes: "Domain reference for the project.",
       },
       {
         id: "demo-expense-deployment-tools",
@@ -391,14 +391,14 @@ export function createDemoSeedState(): DemoSeedState {
       },
     ],
     [
-      "Checkout demo is ready.",
-      "Need to test AI summary again.",
-      "Let's record the demo video tonight.",
+      "Checkout setup is ready.",
+      "Need to review AI summary again.",
+      "Let's finalize the payment records tonight.",
     ],
     500,
   );
 
-  const groups = [thailand, dinner, hackathon];
+  const groups = [thailand, dinner, projectTeam];
 
   return {
     profiles,

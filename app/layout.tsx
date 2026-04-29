@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "SplitSafe",
-  description: "AI-powered onchain group budgeting for 0G Galileo Testnet demos.",
+  description: "AI-powered expense splitting and settlement for private groups.",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },

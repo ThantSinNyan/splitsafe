@@ -35,7 +35,6 @@ import {
   createWorkspace,
   getDashboardStats,
   listWorkspaces,
-  resetDemoData,
 } from "@/lib/storage";
 import { formatMoney, profileLabel } from "@/lib/utils";
 import type { CreateWorkspaceInput, Workspace } from "@/types/splitsafe";
@@ -83,6 +82,7 @@ export function DashboardClient() {
     () => profileLabel({ name: profile?.name, email: profile?.email }),
     [profile?.email, profile?.name],
   );
+  const firstGroupHref = workspaces[0] ? `/workspaces/${workspaces[0].id}` : null;
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login?next=/dashboard");
@@ -151,22 +151,8 @@ export function DashboardClient() {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Could not create sample group",
+          : "Could not create starter group",
       );
-    } finally {
-      setSampleLoading(false);
-    }
-  }
-
-  async function handleResetDemoData() {
-    setSampleLoading(true);
-    setError(null);
-
-    try {
-      await resetDemoData();
-      await refreshDashboard();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not reset demo data");
     } finally {
       setSampleLoading(false);
     }
@@ -193,7 +179,7 @@ export function DashboardClient() {
             <div className="max-w-3xl">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone={supabaseReady || isDemoUser ? "green" : "amber"}>
-                  {isDemoUser ? "Demo mode" : supabaseReady ? "Private groups" : "Setup required"}
+                  {isDemoUser ? "Guest account" : supabaseReady ? "Private groups" : "Setup required"}
                 </Badge>
                 <Badge tone="teal">Only members can view groups</Badge>
               </div>
@@ -206,21 +192,6 @@ export function DashboardClient() {
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row xl:flex-col">
-              {isDemoUser ? (
-                <button
-                  type="button"
-                  onClick={() => void handleResetDemoData()}
-                  disabled={sampleLoading}
-                  className="inline-flex h-12 min-w-52 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 text-sm font-semibold text-amber-900 shadow-sm hover:-translate-y-0.5"
-                >
-                  {sampleLoading ? (
-                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <Sparkles className="size-4" aria-hidden="true" />
-                  )}
-                  Reset demo data
-                </button>
-              ) : null}
               <PrimaryButton
                 type="button"
                 onClick={() => {
@@ -235,6 +206,24 @@ export function DashboardClient() {
                 <Plus className="size-4" aria-hidden="true" />
                 Create group
               </PrimaryButton>
+              {firstGroupHref ? (
+                <Link
+                  href={firstGroupHref}
+                  className="inline-flex h-12 min-w-56 items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-5 text-sm font-semibold text-teal-800 shadow-sm hover:-translate-y-0.5 hover:bg-teal-100"
+                >
+                  <ReceiptText className="size-4" aria-hidden="true" />
+                  Add expense
+                </Link>
+              ) : null}
+              {firstGroupHref ? (
+                <Link
+                  href={firstGroupHref}
+                  className="inline-flex h-12 min-w-56 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-sm hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50"
+                >
+                  <Landmark className="size-4" aria-hidden="true" />
+                  Settle up
+                </Link>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void handleCreateSample()}
@@ -246,7 +235,7 @@ export function DashboardClient() {
                 ) : (
                   <Sparkles className="size-4" aria-hidden="true" />
                 )}
-                Create sample group
+                Use starter group
               </button>
             </div>
           </div>
@@ -254,9 +243,9 @@ export function DashboardClient() {
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <StatCard
-            label="My groups"
-            value={workspaces.length.toString()}
-            detail="Private groups you belong to"
+            label="Total group balance"
+            value={formatMoney(stats.totalUnpaid, "USD")}
+            detail="Across active groups"
             icon={WalletCards}
             tone="teal"
           />
@@ -275,9 +264,9 @@ export function DashboardClient() {
             tone="green"
           />
           <StatCard
-            label="Pending settlements"
+            label="Who owes who"
             value={stats.pendingSettlements.toString()}
-            detail="Unpaid balances"
+            detail="Open payback paths"
             icon={Landmark}
             tone="amber"
           />
@@ -289,9 +278,9 @@ export function DashboardClient() {
             tone="blue"
           />
           <StatCard
-            label="Recent activity"
+            label="Recent expenses"
             value={stats.recentActivity.toString()}
-            detail={formatMoney(stats.totalUnpaid, "USD") + " still unpaid"}
+            detail="Expenses and payment records"
             icon={Activity}
             tone="slate"
           />
@@ -410,9 +399,9 @@ export function DashboardClient() {
                   {sampleLoading ? (
                     <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <Sparkles className="size-4" aria-hidden="true" />
-                  )}
-                  Sample
+                  <Sparkles className="size-4" aria-hidden="true" />
+                )}
+                  Starter
                 </button>
               }
             />
@@ -427,7 +416,7 @@ export function DashboardClient() {
                 <EmptyState
                   icon={Database}
                   title="No groups yet"
-                  body="Create Thailand Trip or invite another account to prove private multi-user access."
+                  body="Create a group or start with a ready-made starter group."
                   action={
                     <button
                       type="button"
@@ -436,7 +425,7 @@ export function DashboardClient() {
                       className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white"
                     >
                       <Sparkles className="size-4" aria-hidden="true" />
-                      Create sample
+                      Use starter group
                     </button>
                   }
                 />

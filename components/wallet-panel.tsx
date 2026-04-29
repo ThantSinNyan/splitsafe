@@ -146,17 +146,17 @@ export function WalletPanel({
               >
                 {isConnected
                   ? connectedNetwork
-                    ? connectedNetwork.label
+                    ? connectedNetwork.shortLabel
                     : "Wrong network"
-                  : "Demo mode"}
+                  : "Wallet optional"}
               </Badge>
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
               {isConnected
                 ? `${shortAddress(address)} is ready for ${
-                    connectedNetwork?.label ?? "testnet"
+                    connectedNetwork?.shortLabel ?? "the selected network"
                   } checkout settlement.`
-                : `Connect a wallet for checkout settlement, or keep using demo settlement.`}
+                : "Connect a wallet for checkout settlement, or record payments manually."}
             </p>
           </div>
         </div>
@@ -166,10 +166,10 @@ export function WalletPanel({
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
                 <ShieldCheck className="size-3.5" aria-hidden="true" />
-                Testnet only
+                Protected
               </div>
               <p className="mt-1 text-sm font-semibold text-slate-950">
-                No mainnet funds
+                Wallets stay optional
               </p>
             </div>
           ) : null}
