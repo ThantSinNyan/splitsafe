@@ -33,6 +33,7 @@
     "eslint-config-next": "16.2.4",
     "ethers": "^6.15.0",
     "hardhat": "^2.26.5",
+    "supabase": "^2.95.6",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
     "typescript": "^5"

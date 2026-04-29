@@ -16,6 +16,7 @@
 # hardhat
 /artifacts
 /cache
+/supabase/.temp
 
 # next.js
 /.next/
