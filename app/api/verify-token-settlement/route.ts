@@ -86,7 +86,17 @@ export async function POST(request: Request) {
       transport: http(getRpcUrl("0g-galileo")),
     });
 
-    const receipt = await client.getTransactionReceipt({ hash: txHash as Hash });
+    const receipt = await client
+      .getTransactionReceipt({ hash: txHash as Hash })
+      .catch(() => null);
+
+    if (!receipt) {
+      return Response.json({
+        ok: true,
+        verified: false,
+        reason: "Transaction not found.",
+      });
+    }
 
     if (receipt.status !== "success") {
       return Response.json({
