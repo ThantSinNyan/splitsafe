@@ -385,6 +385,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   const [settlementError, setSettlementError] = useState<string | null>(null);
   const [settlementAction, setSettlementAction] = useState<string | null>(null);
   const [demoUsdcBalance, setDemoUsdcBalance] = useState<string | null>(null);
+  const [settlementRecipientWallet, setSettlementRecipientWallet] = useState("");
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -644,7 +645,10 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   }
 
   function openSettlement(split: ExpenseSplit) {
+    const expense = expensesById.get(split.expense_id);
+
     setSettlementSplit(split);
+    setSettlementRecipientWallet(expense?.paid_by_profile?.wallet_address ?? "");
     setSettlementProof("");
     setSettlementNotice(null);
     setSettlementError(null);
@@ -739,9 +743,9 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     split: ExpenseSplit,
     txHash: string,
     senderWallet: string,
+    recipientWallet: string,
   ) {
-    const expense = expensesById.get(split.expense_id);
-    const receiverWallet = expense?.paid_by_profile?.wallet_address ?? "";
+    const receiverWallet = recipientWallet.trim();
 
     if (!demoUSDC.address) {
       throw new Error("Demo USDC contract is not configured.");
@@ -801,8 +805,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   }
 
   async function handleSendDemoUsdc(split: ExpenseSplit) {
-    const expense = expensesById.get(split.expense_id);
-    const receiverWallet = expense?.paid_by_profile?.wallet_address ?? "";
+    const receiverWallet = settlementRecipientWallet.trim();
 
     setSettlementAction("send");
     setSettlementError(null);
@@ -835,7 +838,12 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       });
 
       setSettlementProof(hash);
-      await verifyAndRecordSettlement(split, hash, address);
+      await verifyAndRecordSettlement(
+        split,
+        hash,
+        address,
+        settlementRecipientWallet,
+      );
       await loadDemoUsdcBalance();
     } catch (caught) {
       setSettlementError(settlementErrorMessage(caught));
@@ -852,7 +860,12 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     try {
       if (!address) throw new Error("Connect the wallet that paid with dUSDC.");
       const txHash = normalizeTxHashInput(settlementProof);
-      await verifyAndRecordSettlement(split, txHash, address);
+      await verifyAndRecordSettlement(
+        split,
+        txHash,
+        address,
+        settlementRecipientWallet,
+      );
     } catch (caught) {
       setSettlementError(settlementErrorMessage(caught));
     } finally {
@@ -862,7 +875,10 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
 
   async function handleUseMockProof(split: ExpenseSplit) {
     const expense = expensesById.get(split.expense_id);
-    const receiverWallet = expense?.paid_by_profile?.wallet_address ?? "mock-recipient";
+    const receiverWallet =
+      settlementRecipientWallet.trim() ||
+      expense?.paid_by_profile?.wallet_address ||
+      "mock-recipient";
 
     setSettlementAction("mock");
     setSettlementError(null);
@@ -1262,11 +1278,14 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
             onProofChange={setSettlementProof}
             onClose={() => {
               setSettlementSplit(null);
+              setSettlementRecipientWallet("");
               setSettlementProof("");
               setSettlementNotice(null);
               setSettlementError(null);
               setSettlementAction(null);
             }}
+            recipientWallet={settlementRecipientWallet}
+            onRecipientWalletChange={setSettlementRecipientWallet}
             onSwitchNetwork={() => void ensureDefaultSettlementNetwork()}
             onAddToken={() => void handleAddDemoUsdcToWallet()}
             onMint={() => void handleGetDemoUsdc()}
@@ -2557,10 +2576,12 @@ function DemoUsdcSettlementModal({
   chainId,
   isDemoUser,
   balance,
+  recipientWallet,
   proof,
   notice,
   error,
   action,
+  onRecipientWalletChange,
   onProofChange,
   onClose,
   onSwitchNetwork,
@@ -2578,10 +2599,12 @@ function DemoUsdcSettlementModal({
   chainId: number;
   isDemoUser: boolean;
   balance: string | null;
+  recipientWallet: string;
   proof: string;
   notice: string | null;
   error: string | null;
   action: string | null;
+  onRecipientWalletChange: (value: string) => void;
   onProofChange: (value: string) => void;
   onClose: () => void;
   onSwitchNetwork: () => void;
@@ -2592,19 +2615,19 @@ function DemoUsdcSettlementModal({
   onMockProof: () => void;
   onCopy: (value: string, message: string) => void;
 }) {
-  const recipientWallet = expense?.paid_by_profile?.wallet_address ?? "";
   const recipientName = expense ? profileLabel(expense.paid_by_profile) : "Recipient";
   const tokenConfigured = isDemoUSDCConfigured();
   const onDefaultNetwork = chainId === defaultSettlementNetwork.chainId;
+  const normalizedRecipientWallet = recipientWallet.trim();
   const canSend =
     tokenConfigured &&
     isConnected &&
     onDefaultNetwork &&
-    isAddress(recipientWallet) &&
+    isAddress(normalizedRecipientWallet) &&
     !action;
   const amountLabel = formatMoney(split.amount_owed, demoUSDC.symbol);
-  const recipientLabel = recipientWallet
-    ? shortAddress(recipientWallet)
+  const recipientLabel = normalizedRecipientWallet
+    ? shortAddress(normalizedRecipientWallet)
     : "Wallet needed";
   const contractLabel = demoUSDC.address
     ? shortAddress(demoUSDC.address)
@@ -2622,11 +2645,11 @@ function DemoUsdcSettlementModal({
               </Badge>
             </div>
             <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
-              Settle with dUSDC
+              Pay with MetaMask
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              dUSDC is a fake testnet token used to simulate USDC settlement. It
-              has no real value.
+              Pay {amountLabel} to settle {formatMoney(split.amount_owed, "USD")}.
+              MetaMask will open for confirmation.
             </p>
           </div>
           <button
@@ -2641,7 +2664,50 @@ function DemoUsdcSettlementModal({
 
         <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1fr_280px]">
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[24px] border border-teal-100 bg-teal-50/70 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">
+                Payment
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-sm text-slate-500">You owe</p>
+                  <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
+                    {formatMoney(split.amount_owed, "USD")}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-500">Pay</p>
+                  <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
+                    {amountLabel}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-teal-800">
+                dUSDC is fake testnet money with no real value.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <label className="text-sm font-semibold text-slate-900">
+                Send to wallet
+              </label>
+              <input
+                value={recipientWallet}
+                onChange={(event) => onRecipientWalletChange(event.target.value)}
+                placeholder="Paste recipient wallet address"
+                className={cn(fieldClassName, "mt-2 bg-white font-mono")}
+              />
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Ask the person you owe for their wallet address. SplitSafe verifies
+                the transfer goes to this address before marking it settled.
+              </p>
+            </div>
+
+            <details className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                Payment details
+              </summary>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <SettlementInfoTile
                 label="You owe"
                 value={formatMoney(split.amount_owed, "USD")}
@@ -2666,7 +2732,8 @@ function DemoUsdcSettlementModal({
                 label="Your dUSDC balance"
                 value={balance ?? (tokenConfigured ? "Connect wallet" : "Unavailable")}
               />
-            </div>
+              </div>
+            </details>
 
             {!tokenConfigured ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
@@ -2708,9 +2775,12 @@ function DemoUsdcSettlementModal({
               </div>
             ) : null}
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="mb-3 text-sm font-semibold text-slate-900">
+            <details className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-900">
                 I already paid
+              </summary>
+              <p className="mb-3 text-sm font-semibold text-slate-900">
+                Paste transaction
               </p>
               <div className="flex flex-col gap-3 sm:flex-row">
                 <input
@@ -2737,44 +2807,68 @@ function DemoUsdcSettlementModal({
                 SplitSafe verifies the dUSDC Transfer event before marking this
                 balance as settled.
               </p>
-            </div>
+            </details>
           </div>
 
           <div className="space-y-3">
             <PrimaryButton
               type="button"
-              onClick={onSwitchNetwork}
-              disabled={action === "switch" || onDefaultNetwork}
-              className="h-11 w-full bg-slate-950 hover:bg-slate-800"
-            >
-              <Wallet className="size-4" aria-hidden="true" />
-              {onDefaultNetwork ? "0G selected" : "Switch to 0G"}
-            </PrimaryButton>
-            <SecondarySettlementButton onClick={onAddToken} disabled={!tokenConfigured}>
-              Add dUSDC to MetaMask
-            </SecondarySettlementButton>
-            <SecondarySettlementButton
-              onClick={onMint}
-              disabled={!tokenConfigured || Boolean(action)}
-            >
-              {action === "mint" ? "Minting..." : "Get demo dUSDC"}
-            </SecondarySettlementButton>
-            <PrimaryButton
-              type="button"
               onClick={onSend}
               disabled={!canSend}
-              className="h-11 w-full bg-teal-600 hover:bg-teal-700"
+              className="h-12 w-full bg-teal-600 text-base hover:bg-teal-700"
             >
               {action === "send" ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
               ) : (
                 <Send className="size-4" aria-hidden="true" />
               )}
-              Send dUSDC
+              Pay with MetaMask
             </PrimaryButton>
+            {!isConnected ? (
+              <p className="text-xs leading-5 text-amber-700">
+                Connect your wallet first.
+              </p>
+            ) : !onDefaultNetwork ? (
+              <SecondarySettlementButton
+                onClick={onSwitchNetwork}
+                disabled={action === "switch"}
+              >
+                Switch to 0G Galileo
+              </SecondarySettlementButton>
+            ) : !isAddress(normalizedRecipientWallet) ? (
+              <p className="text-xs leading-5 text-amber-700">
+                Add a valid recipient wallet to continue.
+              </p>
+            ) : null}
+
+            <details className="rounded-2xl border border-slate-200 bg-white p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                Wallet setup
+              </summary>
+              <div className="mt-3 space-y-3">
+                <SecondarySettlementButton onClick={onAddToken} disabled={!tokenConfigured}>
+                  Add dUSDC to MetaMask
+                </SecondarySettlementButton>
+                <SecondarySettlementButton
+                  onClick={onMint}
+                  disabled={!tokenConfigured || Boolean(action)}
+                >
+                  {action === "mint" ? "Minting..." : "Get demo dUSDC"}
+                </SecondarySettlementButton>
+                <a
+                  href="https://faucet.0g.ai"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Get 0G gas
+                  <ExternalLink className="size-4" aria-hidden="true" />
+                </a>
+              </div>
+            </details>
             <SecondarySettlementButton
-              onClick={() => onCopy(recipientWallet, "Recipient wallet copied.")}
-              disabled={!recipientWallet}
+              onClick={() => onCopy(normalizedRecipientWallet, "Recipient wallet copied.")}
+              disabled={!normalizedRecipientWallet}
             >
               Copy recipient wallet
             </SecondarySettlementButton>
@@ -2793,15 +2887,6 @@ function DemoUsdcSettlementModal({
                 Mock dUSDC proof for demo only
               </button>
             ) : null}
-            <a
-              href="https://faucet.0g.ai"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Get 0G gas
-              <ExternalLink className="size-4" aria-hidden="true" />
-            </a>
             <p className="text-xs leading-5 text-slate-500">
               0G faucet provides gas only. dUSDC comes from the SplitSafe Demo
               USDC contract.
