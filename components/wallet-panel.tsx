@@ -22,6 +22,39 @@ import { cn, shortAddress } from "@/lib/utils";
 
 export function WalletMiniControl() {
   return (
+    <>
+      <WalletProfileSync />
+      <WalletConnectControl />
+    </>
+  );
+}
+
+function WalletProfileSync() {
+  const { address } = useAccount();
+  const { profile, refreshProfile, user } = useAuth();
+
+  useEffect(() => {
+    if (!user || !address) return;
+    if (user.id === localDemoUserId) return;
+    if (profile?.wallet_address?.toLowerCase() === address.toLowerCase()) return;
+
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    void supabase
+      .from("profiles")
+      .update({ wallet_address: address })
+      .eq("id", user.id)
+      .then(({ error }) => {
+        if (!error) void refreshProfile();
+      });
+  }, [address, profile?.wallet_address, refreshProfile, user]);
+
+  return null;
+}
+
+function WalletConnectControl() {
+  return (
     <ConnectButton.Custom>
       {({
         account,
@@ -97,23 +130,8 @@ export function WalletPanel({
 }) {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const { profile, refreshProfile, user } = useAuth();
   const connectedNetwork = getSettlementNetworkByChainId(chainId);
   const onDefaultNetwork = connectedNetwork?.id === defaultSettlementNetwork.id;
-
-  useEffect(() => {
-    if (!user || !address || profile?.wallet_address === address) return;
-    if (user.id === localDemoUserId) return;
-
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    void supabase
-      .from("profiles")
-      .update({ wallet_address: address })
-      .eq("id", user.id)
-      .then(() => refreshProfile());
-  }, [address, profile?.wallet_address, refreshProfile, user]);
 
   return (
     <div

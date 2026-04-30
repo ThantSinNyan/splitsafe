@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   CircleDollarSign,
@@ -66,9 +66,12 @@ export function DashboardClient() {
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
   const [form, setForm] = useState<CreateWorkspaceInput>(initialForm);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sampleLoading, setSampleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadedDashboardUserIdRef = useRef<string | null>(null);
+  const [dashboardLoaded, setDashboardLoaded] = useState(false);
 
   const displayName = useMemo(
     () => profileLabel({ name: profile?.name, email: profile?.email }),
@@ -82,7 +85,15 @@ export function DashboardClient() {
 
   const refreshDashboard = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
+    const initialLoad = loadedDashboardUserIdRef.current !== user.id;
+    if (initialLoad) {
+      setDashboardLoaded(false);
+      setWorkspaces([]);
+      setStats(emptyStats);
+      setLoading(true);
+    } else {
+      setSyncing(true);
+    }
     setError(null);
 
     try {
@@ -92,12 +103,15 @@ export function DashboardClient() {
       ]);
       setWorkspaces(nextWorkspaces);
       setStats(nextStats);
+      loadedDashboardUserIdRef.current = user.id;
+      setDashboardLoaded(true);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Could not load groups",
       );
     } finally {
       setLoading(false);
+      setSyncing(false);
     }
   }, [user]);
 
@@ -150,16 +164,8 @@ export function DashboardClient() {
     }
   }
 
-  if (authLoading || (!user && supabaseReady)) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-500 shadow-sm">
-          <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden="true" />
-          Restoring session
-        </div>
-      </main>
-    );
-  }
+  const waitingForAuth = authLoading || (!user && supabaseReady);
+  const showInitialSkeleton = waitingForAuth || (loading && !dashboardLoaded);
 
   return (
     <AppShell>
@@ -174,6 +180,12 @@ export function DashboardClient() {
                   {isDemoUser ? "Guest account" : supabaseReady ? "Private groups" : "Setup required"}
                 </Badge>
                 <Badge tone="teal">Only members can view groups</Badge>
+                {syncing ? (
+                  <Badge tone="blue">
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                    Syncing
+                  </Badge>
+                ) : null}
               </div>
               <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
                 My groups
@@ -192,7 +204,7 @@ export function DashboardClient() {
                     block: "start",
                   });
                 }}
-                disabled={!supabaseReady && !isDemoUser}
+                disabled={waitingForAuth || (!supabaseReady && !isDemoUser)}
                 className="min-w-56 bg-gradient-to-r from-slate-950 to-teal-900"
               >
                 <Plus className="size-4" aria-hidden="true" />
@@ -219,7 +231,7 @@ export function DashboardClient() {
               <button
                 type="button"
                 onClick={() => void handleCreateSample()}
-                disabled={(!supabaseReady && !isDemoUser) || sampleLoading}
+                disabled={waitingForAuth || (!supabaseReady && !isDemoUser) || sampleLoading}
                 className="inline-flex h-12 min-w-56 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-sm hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {sampleLoading ? (
@@ -233,6 +245,9 @@ export function DashboardClient() {
           </div>
         </header>
 
+        {showInitialSkeleton ? (
+          <DashboardStatsSkeleton />
+        ) : (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <StatCard
             label="My groups"
@@ -270,6 +285,7 @@ export function DashboardClient() {
             tone="blue"
           />
         </section>
+        )}
 
         {!supabaseReady && !isDemoUser ? (
           <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 p-5 text-sm leading-6 text-amber-900 shadow-sm">
@@ -356,7 +372,7 @@ export function DashboardClient() {
 
               <PrimaryButton
                 type="submit"
-                disabled={(!supabaseReady && !isDemoUser) || saving}
+                disabled={waitingForAuth || (!supabaseReady && !isDemoUser) || saving}
                 className="w-full"
               >
                 {saving ? (
@@ -378,7 +394,7 @@ export function DashboardClient() {
                 <button
                   type="button"
                   onClick={() => void handleCreateSample()}
-                  disabled={(!supabaseReady && !isDemoUser) || sampleLoading}
+                  disabled={waitingForAuth || (!supabaseReady && !isDemoUser) || sampleLoading}
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-4 text-sm font-semibold text-teal-800 hover:-translate-y-0.5 hover:bg-teal-100"
                 >
                   {sampleLoading ? (
@@ -392,11 +408,8 @@ export function DashboardClient() {
             />
 
             <div className="mt-6">
-              {loading ? (
-                <div className="flex min-h-72 items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-slate-50 text-sm font-medium text-slate-500">
-                  <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
-                  Loading groups
-                </div>
+              {showInitialSkeleton ? (
+                <GroupListSkeleton />
               ) : workspaces.length === 0 ? (
                 <EmptyState
                   icon={Database}
@@ -406,7 +419,7 @@ export function DashboardClient() {
                     <button
                       type="button"
                       onClick={() => void handleCreateSample()}
-                      disabled={(!supabaseReady && !isDemoUser) || sampleLoading}
+                      disabled={waitingForAuth || (!supabaseReady && !isDemoUser) || sampleLoading}
                       className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white"
                     >
                       <Sparkles className="size-4" aria-hidden="true" />
@@ -464,5 +477,43 @@ export function DashboardClient() {
         </section>
       </div>
     </AppShell>
+  );
+}
+
+function DashboardStatsSkeleton() {
+  return (
+    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <div
+          key={index}
+          className="min-h-32 animate-pulse rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <div className="h-3 w-24 rounded-full bg-slate-200" />
+          <div className="mt-5 h-8 w-28 rounded-full bg-slate-100" />
+          <div className="mt-4 h-3 w-32 rounded-full bg-slate-100" />
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function GroupListSkeleton() {
+  return (
+    <div className="grid gap-4">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={index}
+          className="animate-pulse rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <div className="flex items-start gap-4">
+            <div className="size-12 rounded-2xl bg-slate-100" />
+            <div className="min-w-0 flex-1">
+              <div className="h-5 w-40 rounded-full bg-slate-200" />
+              <div className="mt-3 h-4 w-full max-w-md rounded-full bg-slate-100" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

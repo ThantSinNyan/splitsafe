@@ -34,6 +34,18 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+let cachedAuthState: {
+  checked: boolean;
+  session: Session | null;
+  user: User | null;
+  profile: Profile | null;
+} = {
+  checked: false,
+  session: null,
+  user: null,
+  profile: null,
+};
+
 function profileFromUser(user: User): Profile {
   const metadata = user.user_metadata ?? {};
   const fallbackName = user.is_anonymous
@@ -59,22 +71,54 @@ function profileFromUser(user: User): Profile {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const setupStatus = getSupabaseSetupStatus();
   const supabase = getSupabaseClient();
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(setupStatus.configured);
+  const localDemoActive = isLocalDemoMode();
+  const [session, setSession] = useState<Session | null>(
+    localDemoActive ? null : cachedAuthState.session,
+  );
+  const [user, setUser] = useState<User | null>(
+    localDemoActive ? getLocalDemoUser() : cachedAuthState.user,
+  );
+  const [profile, setProfile] = useState<Profile | null>(
+    localDemoActive ? getLocalDemoProfile() : cachedAuthState.profile,
+  );
+  const [loading, setLoading] = useState(
+    setupStatus.configured && !localDemoActive && !cachedAuthState.checked,
+  );
+
+  const applyAuthState = useCallback(
+    (nextSession: Session | null, nextUser: User | null) => {
+      cachedAuthState = {
+        ...cachedAuthState,
+        checked: true,
+        session: nextSession,
+        user: nextUser,
+      };
+      setSession(nextSession);
+      setUser(nextUser);
+    },
+    [],
+  );
 
   const activateLocalDemo = useCallback(() => {
     startLocalDemoMode();
+    const demoUser = getLocalDemoUser();
+    const demoProfile = getLocalDemoProfile();
+    cachedAuthState = {
+      checked: true,
+      session: null,
+      user: demoUser,
+      profile: demoProfile,
+    };
     setSession(null);
-    setUser(getLocalDemoUser());
-    setProfile(getLocalDemoProfile());
+    setUser(demoUser);
+    setProfile(demoProfile);
     setLoading(false);
   }, []);
 
   const loadProfile = useCallback(
     async (nextUser: User | null) => {
       if (!supabase || !nextUser) {
+        cachedAuthState = { ...cachedAuthState, profile: null };
         setProfile(null);
         return;
       }
@@ -93,11 +137,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: fallbackProfile.email,
           avatar_url: fallbackProfile.avatar_url,
         });
+        cachedAuthState = { ...cachedAuthState, profile: fallbackProfile };
         setProfile(fallbackProfile);
         return;
       }
 
-      setProfile({
+      const nextProfile = {
         id: String(data.id),
         name: typeof data.name === "string" ? data.name : null,
         email: typeof data.email === "string" ? data.email : null,
@@ -109,7 +154,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           typeof data.created_at === "string"
             ? data.created_at
             : new Date().toISOString(),
-      });
+      };
+
+      cachedAuthState = { ...cachedAuthState, profile: nextProfile };
+      setProfile(nextProfile);
     },
     [supabase],
   );
@@ -121,24 +169,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!supabase) {
-      queueMicrotask(() => setLoading(false));
+      queueMicrotask(() => {
+        cachedAuthState = {
+          checked: true,
+          session: null,
+          user: null,
+          profile: null,
+        };
+        setLoading(false);
+      });
       return;
     }
 
     let cancelled = false;
 
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (cancelled) return;
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
-      await loadProfile(data.session?.user ?? null);
-      if (!cancelled) setLoading(false);
-    });
+    if (cachedAuthState.checked) {
+      queueMicrotask(() => setLoading(false));
+    } else {
+      supabase.auth.getSession().then(async ({ data }) => {
+        if (cancelled) return;
+        applyAuthState(data.session, data.session?.user ?? null);
+        await loadProfile(data.session?.user ?? null);
+        if (!cancelled) setLoading(false);
+      });
+    }
 
     const { data: subscription } = supabase.auth.onAuthStateChange(
       (_event, nextSession) => {
-        setSession(nextSession);
-        setUser(nextSession?.user ?? null);
+        applyAuthState(nextSession, nextSession?.user ?? null);
         void loadProfile(nextSession?.user ?? null);
         setLoading(false);
       },
@@ -148,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       subscription.subscription.unsubscribe();
     };
-  }, [activateLocalDemo, loadProfile, supabase]);
+  }, [activateLocalDemo, applyAuthState, loadProfile, supabase]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -164,6 +222,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut: async () => {
         stopLocalDemoMode();
         if (supabase) await supabase.auth.signOut();
+        cachedAuthState = {
+          checked: true,
+          session: null,
+          user: null,
+          profile: null,
+        };
         setSession(null);
         setUser(null);
         setProfile(null);

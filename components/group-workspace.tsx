@@ -368,7 +368,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   const { switchChainAsync } = useSwitchChain();
 
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inviteForm, setInviteForm] =
     useState<CreateInviteInput>(initialInviteForm);
@@ -403,6 +403,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     string | null
   >(null);
   const settlementInFlightRef = useRef(false);
+  const loadedGroupIdRef = useRef<string | null>(null);
+  const [loadedGroupId, setLoadedGroupId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -412,12 +414,19 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
 
   const refreshWorkspace = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
+    const initialLoad = loadedGroupIdRef.current !== groupId;
+    if (initialLoad) {
+      setWorkspace(null);
+    } else {
+      setSyncing(true);
+    }
     setError(null);
 
     try {
       const nextWorkspace = await getWorkspace(groupId);
       setWorkspace(nextWorkspace);
+      loadedGroupIdRef.current = groupId;
+      setLoadedGroupId(groupId);
 
       const nextMembers = activeMembers(nextWorkspace?.members ?? []);
       if (nextMembers.length) {
@@ -432,11 +441,14 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         }));
       }
     } catch (caught) {
+      setWorkspace(null);
+      loadedGroupIdRef.current = groupId;
+      setLoadedGroupId(groupId);
       setError(
         caught instanceof Error ? caught.message : "Could not load group",
       );
     } finally {
-      setLoading(false);
+      setSyncing(false);
     }
   }, [groupId, user]);
 
@@ -677,9 +689,12 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     }
   }
 
-  function openSettlement(split: ExpenseSplit) {
+  function openSettlement(
+    split: ExpenseSplit,
+    sourceWorkspace: WorkspaceData | null = workspace,
+  ) {
     const latestSplit =
-      workspace?.splits.find((item) => item.id === split.id) ?? split;
+      sourceWorkspace?.splits.find((item) => item.id === split.id) ?? split;
 
     if (latestSplit.status !== "unpaid") {
       setSettlementSplit(null);
@@ -692,10 +707,19 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       return;
     }
 
-    const expense = expensesById.get(latestSplit.expense_id);
+    const expense =
+      sourceWorkspace?.expenses.find((item) => item.id === latestSplit.expense_id) ??
+      expensesById.get(latestSplit.expense_id);
+    const payerMember = sourceWorkspace?.members.find(
+      (member) => member.user_id === expense?.paid_by,
+    );
+    const recipientWallet =
+      expense?.paid_by_profile?.wallet_address ??
+      payerMember?.profile?.wallet_address ??
+      "";
 
     setSettlementSplit(latestSplit);
-    setSettlementRecipientWallet(expense?.paid_by_profile?.wallet_address ?? "");
+    setSettlementRecipientWallet(recipientWallet);
     setSettlementProof("");
     setSettlementNotice(null);
     setSettlementError(null);
@@ -703,7 +727,24 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     setSettlementSuccessNotice(null);
   }
 
-  function handleSettle(split: ExpenseSplit) {
+  async function handleSettle(split: ExpenseSplit) {
+    setSyncing(true);
+
+    try {
+      const nextWorkspace = await getWorkspace(groupId);
+      if (nextWorkspace) {
+        setWorkspace(nextWorkspace);
+        loadedGroupIdRef.current = groupId;
+        setLoadedGroupId(groupId);
+        openSettlement(split, nextWorkspace);
+        return;
+      }
+    } catch {
+      // Use the current on-screen data if a background refresh fails.
+    } finally {
+      setSyncing(false);
+    }
+
     openSettlement(split);
   }
 
@@ -713,7 +754,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     );
     if (myDebts.length === 0) return;
 
-    openSettlement(myDebts[0]);
+    void handleSettle(myDebts[0]);
   }
 
   function ensureSplitCanBePaid(split: ExpenseSplit) {
@@ -1088,14 +1129,11 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     setActiveTab("ai");
   }
 
-  if (authLoading || loading) {
+  if (authLoading || !user || loadedGroupId !== groupId) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-500 shadow-sm">
-          <Loader2 className="size-4 animate-spin text-teal-600" aria-hidden="true" />
-          Loading group
-        </div>
-      </main>
+      <AppShell>
+        <GroupDetailSkeleton />
+      </AppShell>
     );
   }
 
@@ -1150,6 +1188,12 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
                 <Badge tone={metrics.remaining < 0 ? "rose" : "green"}>
                   {metrics.remaining < 0 ? "Over budget" : "On budget"}
                 </Badge>
+                {syncing ? (
+                  <Badge tone="blue">
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                    Syncing
+                  </Badge>
+                ) : null}
               </div>
               <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
                 {room.name}
@@ -1434,6 +1478,42 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
         ) : null}
       </div>
     </AppShell>
+  );
+}
+
+function GroupDetailSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-[34px] border border-white/80 bg-white/82 p-7 shadow-[0_30px_90px_rgba(15,23,42,0.08)] sm:p-8">
+        <div className="animate-pulse">
+          <div className="h-4 w-28 rounded-full bg-slate-200" />
+          <div className="mt-6 flex flex-wrap gap-2">
+            <div className="h-7 w-24 rounded-full bg-slate-100" />
+            <div className="h-7 w-32 rounded-full bg-slate-100" />
+          </div>
+          <div className="mt-5 h-11 w-full max-w-md rounded-full bg-slate-200" />
+          <div className="mt-4 h-4 w-full max-w-2xl rounded-full bg-slate-100" />
+        </div>
+      </div>
+      <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-5 gap-1">
+          {groupTabs.map((tab) => (
+            <div key={tab.id} className="h-10 animate-pulse rounded-2xl bg-slate-100" />
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div
+            key={index}
+            className="min-h-32 animate-pulse rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <div className="h-3 w-24 rounded-full bg-slate-200" />
+            <div className="mt-5 h-8 w-28 rounded-full bg-slate-100" />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
