@@ -2076,9 +2076,9 @@ function MemberRow({
   onChangeRole: (role: Exclude<WorkspaceRole, "owner">) => Promise<void>;
 }) {
   return (
-    <div className="grid gap-3 rounded-[22px] border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+    <div className="grid gap-3 rounded-[22px] border border-slate-200 bg-slate-50/70 p-3">
       <div className="flex min-w-0 items-center gap-3">
-        <AvatarToken name={profileLabel(member.profile)} />
+        <AvatarToken name={profileLabel(member.profile)} className="shrink-0" />
         <div className="min-w-0">
           <p className="truncate font-semibold text-slate-950">
             {profileLabel(member.profile)}
@@ -2088,7 +2088,7 @@ function MemberRow({
           </p>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+      <div className="flex flex-wrap items-center gap-2">
         {canChangeRole ? (
           <select
             value={member.role}
@@ -2098,7 +2098,7 @@ function MemberRow({
               )
             }
             disabled={updatingRole || removing}
-            className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm outline-none transition focus:border-teal-300 focus:ring-4 focus:ring-teal-100 disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-9 min-w-32 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm outline-none transition focus:border-teal-300 focus:ring-4 focus:ring-teal-100 disabled:cursor-not-allowed disabled:opacity-60"
             aria-label={`Change role for ${profileLabel(member.profile)}`}
           >
             <option value="member">member</option>
