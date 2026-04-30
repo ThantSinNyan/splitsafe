@@ -16,6 +16,7 @@ import {
   recordLocalSettlement,
   resetLocalDemoData,
   saveLocalAiMessage,
+  updateLocalWorkspaceMemberRole,
 } from "@/lib/local-demo";
 import { defaultSettlementNetwork } from "@/lib/networks";
 import { requireSupabaseClient } from "@/lib/supabase";
@@ -36,6 +37,7 @@ import type {
   Workspace,
   WorkspaceData,
   WorkspaceMember,
+  WorkspaceRole,
 } from "@/types/splitsafe";
 
 function asRecord(value: unknown) {
@@ -518,6 +520,23 @@ export async function removeWorkspaceMember(memberId: string) {
   const supabase = requireSupabaseClient();
   const { data, error } = await supabase.rpc("remove_workspace_member", {
     target_member_id: memberId,
+  });
+
+  throwIfError(error);
+  return String(data);
+}
+
+export async function updateWorkspaceMemberRole(
+  memberId: string,
+  role: Exclude<WorkspaceRole, "owner">,
+) {
+  if (isLocalDemoMode()) return updateLocalWorkspaceMemberRole(memberId, role);
+
+  await getCurrentUser();
+  const supabase = requireSupabaseClient();
+  const { data, error } = await supabase.rpc("update_workspace_member_role", {
+    target_member_id: memberId,
+    target_role: role,
   });
 
   throwIfError(error);

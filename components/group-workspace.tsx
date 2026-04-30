@@ -65,6 +65,7 @@ import {
   recordSettlement,
   removeWorkspaceMember,
   saveAiMessage,
+  updateWorkspaceMemberRole,
 } from "@/lib/storage";
 import {
   defaultSettlementNetwork,
@@ -97,6 +98,7 @@ import type {
   InvitePreview,
   WorkspaceData,
   WorkspaceMember,
+  WorkspaceRole,
 } from "@/types/splitsafe";
 import type { SlipScanResult } from "@/types/slip-scan";
 
@@ -334,6 +336,15 @@ function canRemoveMember(
   return false;
 }
 
+function canChangeMemberRole(
+  currentMember: WorkspaceMember | null | undefined,
+  targetMember: WorkspaceMember,
+) {
+  if (!currentMember || currentMember.role !== "owner") return false;
+  if (currentMember.user_id === targetMember.user_id) return false;
+  return targetMember.role !== "owner";
+}
+
 function inviteUrl(inviteToken: string) {
   const origin =
     typeof window === "undefined"
@@ -382,6 +393,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(null);
   const [memberToRemove, setMemberToRemove] = useState<WorkspaceMember | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  const [updatingRoleMemberId, setUpdatingRoleMemberId] = useState<string | null>(null);
   const [memberNotice, setMemberNotice] = useState<string | null>(null);
   const [aiQuestion, setAiQuestion] = useState("Who still needs to pay?");
   const [aiLoading, setAiLoading] = useState(false);
@@ -626,6 +638,27 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       setError(caught instanceof Error ? caught.message : "Could not remove member");
     } finally {
       setRemovingMemberId(null);
+    }
+  }
+
+  async function handleChangeMemberRole(
+    member: WorkspaceMember,
+    role: Exclude<WorkspaceRole, "owner">,
+  ) {
+    if (member.role === role) return;
+
+    setUpdatingRoleMemberId(member.id);
+    setError(null);
+    setMemberNotice(null);
+
+    try {
+      await updateWorkspaceMemberRole(member.id, role);
+      setMemberNotice("Member role updated.");
+      await refreshWorkspace();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update role");
+    } finally {
+      setUpdatingRoleMemberId(null);
     }
   }
 
@@ -1356,11 +1389,13 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
             cancellingInviteId={cancellingInviteId}
             memberNotice={memberNotice}
             removingMemberId={removingMemberId}
+            updatingRoleMemberId={updatingRoleMemberId}
             setInviteForm={setInviteForm}
             onInvite={handleInvite}
             onCopyInvite={handleCopyInvite}
             onCancelInvite={handleCancelInvite}
             onRequestRemoveMember={setMemberToRemove}
+            onChangeMemberRole={handleChangeMemberRole}
           />
         ) : null}
 
@@ -1843,11 +1878,13 @@ function MembersPanel({
   cancellingInviteId,
   memberNotice,
   removingMemberId,
+  updatingRoleMemberId,
   setInviteForm,
   onInvite,
   onCopyInvite,
   onCancelInvite,
   onRequestRemoveMember,
+  onChangeMemberRole,
 }: {
   members: WorkspaceMember[];
   invites: WorkspaceData["invites"];
@@ -1861,11 +1898,16 @@ function MembersPanel({
   cancellingInviteId: string | null;
   memberNotice: string | null;
   removingMemberId: string | null;
+  updatingRoleMemberId: string | null;
   setInviteForm: React.Dispatch<React.SetStateAction<CreateInviteInput>>;
   onInvite: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
   onCopyInvite: (inviteToken: string) => Promise<void>;
   onCancelInvite: (inviteId: string) => Promise<void>;
   onRequestRemoveMember: (member: WorkspaceMember) => void;
+  onChangeMemberRole: (
+    member: WorkspaceMember,
+    role: Exclude<WorkspaceRole, "owner">,
+  ) => Promise<void>;
 }) {
   const groupedInvites = {
     pending: invites.filter((invite) => invite.status === "pending"),
@@ -1964,9 +2006,12 @@ function MembersPanel({
             <MemberRow
               key={member.id}
               member={member}
+              canChangeRole={canChangeMemberRole(currentMember, member)}
               canRemove={canRemoveMember(currentMember, member)}
               removing={removingMemberId === member.id}
+              updatingRole={updatingRoleMemberId === member.id}
               onRemove={() => onRequestRemoveMember(member)}
+              onChangeRole={(role) => onChangeMemberRole(member, role)}
             />
           ))}
         </div>
@@ -2015,14 +2060,20 @@ function MembersPanel({
 
 function MemberRow({
   member,
+  canChangeRole,
   canRemove,
   removing,
+  updatingRole,
   onRemove,
+  onChangeRole,
 }: {
   member: WorkspaceMember;
+  canChangeRole: boolean;
   canRemove: boolean;
   removing: boolean;
+  updatingRole: boolean;
   onRemove: () => void;
+  onChangeRole: (role: Exclude<WorkspaceRole, "owner">) => Promise<void>;
 }) {
   return (
     <div className="grid gap-3 rounded-[22px] border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
@@ -2038,9 +2089,29 @@ function MemberRow({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-        <Badge tone={member.role === "owner" ? "teal" : "slate"}>
-          {member.role}
-        </Badge>
+        {canChangeRole ? (
+          <select
+            value={member.role}
+            onChange={(event) =>
+              void onChangeRole(
+                event.target.value as Exclude<WorkspaceRole, "owner">,
+              )
+            }
+            disabled={updatingRole || removing}
+            className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm outline-none transition focus:border-teal-300 focus:ring-4 focus:ring-teal-100 disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label={`Change role for ${profileLabel(member.profile)}`}
+          >
+            <option value="member">member</option>
+            <option value="admin">admin</option>
+          </select>
+        ) : (
+          <Badge tone={member.role === "owner" ? "teal" : "slate"}>
+            {member.role}
+          </Badge>
+        )}
+        {updatingRole ? (
+          <Loader2 className="size-3.5 animate-spin text-teal-600" aria-hidden="true" />
+        ) : null}
         <Badge tone="green">{member.status}</Badge>
         {canRemove ? (
           <button

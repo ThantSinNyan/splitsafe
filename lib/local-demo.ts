@@ -17,6 +17,7 @@ import type {
   Workspace,
   WorkspaceData,
   WorkspaceMember,
+  WorkspaceRole,
 } from "@/types/splitsafe";
 
 const localDemoSessionKey = "splitsafe.localDemo.session";
@@ -351,6 +352,37 @@ export function removeLocalWorkspaceMember(memberId: string) {
   }
 
   state.members = state.members.filter((item) => item.id !== member.id);
+  writeState(state);
+  return member.workspace_id;
+}
+
+export function updateLocalWorkspaceMemberRole(
+  memberId: string,
+  role: Exclude<WorkspaceRole, "owner">,
+) {
+  const state = readState();
+  const member = state.members.find((item) => item.id === memberId);
+  if (!member) throw new Error("Member not found in guest mode.");
+
+  const currentMember = state.members.find(
+    (item) =>
+      item.workspace_id === member.workspace_id &&
+      item.user_id === localDemoUserId &&
+      item.status === "active",
+  );
+
+  if (!currentMember) throw new Error("You are not a member of this group.");
+  if (currentMember.role !== "owner") {
+    throw new Error("Only the owner can change member roles.");
+  }
+  if (member.user_id === localDemoUserId) {
+    throw new Error("You cannot change your own role.");
+  }
+  if (member.role === "owner") {
+    throw new Error("Owner role cannot be changed.");
+  }
+
+  member.role = role;
   writeState(state);
   return member.workspace_id;
 }

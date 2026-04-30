@@ -77,8 +77,6 @@ export function DashboardClient() {
     () => profileLabel({ name: profile?.name, email: profile?.email }),
     [profile?.email, profile?.name],
   );
-  const firstGroupHref = workspaces[0] ? `/workspaces/${workspaces[0].id}` : null;
-
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login?next=/dashboard");
   }, [authLoading, router, user]);
@@ -210,24 +208,6 @@ export function DashboardClient() {
                 <Plus className="size-4" aria-hidden="true" />
                 Create group
               </PrimaryButton>
-              {firstGroupHref ? (
-                <Link
-                  href={firstGroupHref}
-                  className="inline-flex h-12 min-w-56 items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-5 text-sm font-semibold text-teal-800 shadow-sm hover:-translate-y-0.5 hover:bg-teal-100"
-                >
-                  <ReceiptText className="size-4" aria-hidden="true" />
-                  Add expense
-                </Link>
-              ) : null}
-              {firstGroupHref ? (
-                <Link
-                  href={firstGroupHref}
-                  className="inline-flex h-12 min-w-56 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-sm hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50"
-                >
-                  <Landmark className="size-4" aria-hidden="true" />
-                  Settle up
-                </Link>
-              ) : null}
               <button
                 type="button"
                 onClick={() => void handleCreateSample()}

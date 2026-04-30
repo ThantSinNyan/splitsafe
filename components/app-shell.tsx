@@ -45,25 +45,6 @@ export function AppShell({
           <Link href="/" aria-label="SplitSafe home">
             <BrandMark mobileCompact />
           </Link>
-          <nav className="hidden items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm lg:flex">
-            {navItems.map((item) => {
-              const active = isActiveNav(pathname, item.label);
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-950",
-                    active && "bg-slate-950 text-white shadow-sm hover:bg-slate-950 hover:text-white",
-                  )}
-                >
-                  <item.icon className="size-4" aria-hidden="true" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
           <div className="flex items-center gap-2">
             {user ? (
               <div className="hidden items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm xl:flex">
