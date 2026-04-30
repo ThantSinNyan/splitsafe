@@ -399,6 +399,8 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
   const [settlementAction, setSettlementAction] = useState<string | null>(null);
   const [demoUsdcBalance, setDemoUsdcBalance] = useState<string | null>(null);
   const [settlementRecipientWallet, setSettlementRecipientWallet] = useState("");
+  const [settlementSavedRecipientWallet, setSettlementSavedRecipientWallet] =
+    useState("");
   const [settlementSuccessNotice, setSettlementSuccessNotice] = useState<
     string | null
   >(null);
@@ -699,6 +701,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     if (latestSplit.status !== "unpaid") {
       setSettlementSplit(null);
       setSettlementRecipientWallet("");
+      setSettlementSavedRecipientWallet("");
       setSettlementProof("");
       setSettlementNotice(null);
       setSettlementError(null);
@@ -720,6 +723,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
 
     setSettlementSplit(latestSplit);
     setSettlementRecipientWallet(recipientWallet);
+    setSettlementSavedRecipientWallet(recipientWallet);
     setSettlementProof("");
     setSettlementNotice(null);
     setSettlementError(null);
@@ -904,6 +908,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
     await refreshWorkspace();
     setSettlementSplit(null);
     setSettlementRecipientWallet("");
+    setSettlementSavedRecipientWallet("");
     setSettlementProof("");
     setSettlementNotice(null);
     setSettlementError(null);
@@ -1030,6 +1035,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
       await refreshWorkspace();
       setSettlementSplit(null);
       setSettlementRecipientWallet("");
+      setSettlementSavedRecipientWallet("");
       setSettlementProof("");
       setSettlementNotice(null);
       setSettlementError(null);
@@ -1456,6 +1462,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
             onClose={() => {
               setSettlementSplit(null);
               setSettlementRecipientWallet("");
+              setSettlementSavedRecipientWallet("");
               setSettlementProof("");
               setSettlementNotice(null);
               setSettlementError(null);
@@ -1463,6 +1470,7 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               setSettlementSuccessNotice(null);
             }}
             recipientWallet={settlementRecipientWallet}
+            savedRecipientWallet={settlementSavedRecipientWallet}
             onRecipientWalletChange={setSettlementRecipientWallet}
             onSwitchNetwork={() => void ensureDefaultSettlementNetwork()}
             onAddToken={() => void handleAddDemoUsdcToWallet()}
@@ -2860,6 +2868,7 @@ function DemoUsdcSettlementModal({
   isDemoUser,
   balance,
   recipientWallet,
+  savedRecipientWallet,
   proof,
   notice,
   error,
@@ -2883,6 +2892,7 @@ function DemoUsdcSettlementModal({
   isDemoUser: boolean;
   balance: string | null;
   recipientWallet: string;
+  savedRecipientWallet: string;
   proof: string;
   notice: string | null;
   error: string | null;
@@ -2902,6 +2912,12 @@ function DemoUsdcSettlementModal({
   const tokenConfigured = isDemoUSDCConfigured();
   const onDefaultNetwork = chainId === defaultSettlementNetwork.chainId;
   const normalizedRecipientWallet = recipientWallet.trim();
+  const normalizedSavedRecipientWallet = savedRecipientWallet.trim();
+  const hasSavedRecipientWallet = isAddress(normalizedSavedRecipientWallet);
+  const usingSavedRecipientWallet =
+    hasSavedRecipientWallet &&
+    normalizedRecipientWallet.toLowerCase() ===
+      normalizedSavedRecipientWallet.toLowerCase();
   const canSend =
     tokenConfigured &&
     isConnected &&
@@ -2971,18 +2987,64 @@ function DemoUsdcSettlementModal({
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <label className="text-sm font-semibold text-slate-900">
-                Send to wallet
-              </label>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <label className="text-sm font-semibold text-slate-900">
+                    Send to wallet
+                  </label>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Choose the saved SplitSafe wallet or paste another address.
+                  </p>
+                </div>
+                {usingSavedRecipientWallet ? (
+                  <Badge tone="green">Saved wallet</Badge>
+                ) : null}
+              </div>
+              {hasSavedRecipientWallet ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onRecipientWalletChange(normalizedSavedRecipientWallet)
+                  }
+                  className={cn(
+                    "mt-3 flex w-full items-center justify-between gap-3 rounded-2xl border p-3 text-left transition hover:-translate-y-0.5",
+                    usingSavedRecipientWallet
+                      ? "border-teal-200 bg-teal-50 text-teal-900"
+                      : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white",
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">
+                      Use {recipientName}&apos;s saved wallet
+                    </span>
+                    <span className="mt-1 block truncate font-mono text-xs">
+                      {shortAddress(normalizedSavedRecipientWallet)}
+                    </span>
+                  </span>
+                  {usingSavedRecipientWallet ? (
+                    <CheckCircle2 className="size-5 shrink-0 text-teal-600" aria-hidden="true" />
+                  ) : (
+                    <ArrowRight className="size-4 shrink-0 text-slate-400" aria-hidden="true" />
+                  )}
+                </button>
+              ) : (
+                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                  {recipientName} has not saved a wallet in SplitSafe yet.
+                </div>
+              )}
               <input
                 value={recipientWallet}
                 onChange={(event) => onRecipientWalletChange(event.target.value)}
-                placeholder="Paste recipient wallet address"
+                placeholder={
+                  hasSavedRecipientWallet
+                    ? "Or paste another wallet address"
+                    : "Paste recipient wallet address"
+                }
                 className={cn(fieldClassName, "mt-2 bg-white font-mono")}
               />
               <p className="mt-2 text-xs leading-5 text-slate-500">
-                Ask the person you owe for their wallet address. SplitSafe verifies
-                the transfer goes to this address before marking it settled.
+                SplitSafe verifies the transfer goes to the selected wallet before
+                marking it settled.
               </p>
             </div>
 
@@ -3120,7 +3182,7 @@ function DemoUsdcSettlementModal({
               </SecondarySettlementButton>
             ) : !isAddress(normalizedRecipientWallet) ? (
               <p className="text-xs leading-5 text-amber-700">
-                Add a valid recipient wallet to continue.
+                Use the saved wallet or paste a valid recipient wallet.
               </p>
             ) : null}
 
@@ -3184,6 +3246,9 @@ function DemoUsdcSettlementModal({
             ) : null}
             <p className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
               Recipient: <span className="font-semibold">{recipientName}</span>
+              {hasSavedRecipientWallet ? (
+                <span className="ml-1 text-teal-700">(wallet saved)</span>
+              ) : null}
             </p>
           </div>
         </div>
