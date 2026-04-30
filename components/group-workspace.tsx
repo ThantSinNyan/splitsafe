@@ -54,7 +54,13 @@ import {
   textareaClassName,
 } from "@/components/ui-kit";
 import { SmartSlipScanModal } from "@/components/SmartSlipScanModal";
-import { getAxlStatus } from "@/lib/axl";
+import {
+  buildSettlementWorkflowSteps,
+  getAxlStatus,
+  routeSettlementEvent,
+  type AxlRouteResult,
+  type SettlementSignal,
+} from "@/lib/axl";
 import {
   acceptInvite,
   addExpense,
@@ -1454,7 +1460,22 @@ export function GroupWorkspace({ groupId }: { groupId: string }) {
               onSettle={() => setActiveTab("balances")}
               onAddExpense={() => setActiveTab("expenses")}
             />
-            <SmartSettlementPanel onSettle={() => setActiveTab("balances")} />
+            <SmartSettlementPanel
+              onSettle={() => setActiveTab("balances")}
+              signal={{
+                workspaceId: room.id,
+                amount: metrics.pendingAmount,
+                currency: room.currency,
+                status:
+                  metrics.unpaidCount > 0 ? "unpaid-balances" : "settled",
+                network: defaultSettlementNetwork.id,
+                token: demoUSDC.symbol,
+                unpaidCount: metrics.unpaidCount,
+                memberCount: members.length,
+                expenseCount: expenses.length,
+                event: "smart-settlement-view",
+              }}
+            />
             <AssistantPanel
               aiMessages={aiMessages}
               aiQuestion={aiQuestion}
@@ -2518,9 +2539,19 @@ function titleCaseStatus(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function SmartSettlementPanel({ onSettle }: { onSettle: () => void }) {
+function SmartSettlementPanel({
+  onSettle,
+  signal,
+}: {
+  onSettle: () => void;
+  signal: SettlementSignal;
+}) {
   const [showDetails, setShowDetails] = useState(false);
-  const axlStatus = getAxlStatus();
+  const [axlLoading, setAxlLoading] = useState(false);
+  const [axlResult, setAxlResult] = useState<AxlRouteResult | null>(null);
+  const axlMode = axlResult?.mode ?? "axl-ready";
+  const axlStatus = axlResult?.status ?? getAxlStatus(axlMode);
+  const axlSteps = axlResult?.steps ?? buildSettlementWorkflowSteps(signal);
   const cards = [
     {
       title: "Expense checked",
@@ -2536,6 +2567,30 @@ function SmartSettlementPanel({ onSettle }: { onSettle: () => void }) {
     },
   ];
 
+  async function handleViewDetails() {
+    const nextVisible = !showDetails;
+    setShowDetails(nextVisible);
+
+    if (!nextVisible || axlResult || axlLoading) return;
+
+    setAxlLoading(true);
+    try {
+      const result = await routeSettlementEvent(signal);
+      setAxlResult(result);
+    } catch {
+      setAxlResult({
+        ok: false,
+        mode: "axl-ready",
+        connected: false,
+        status: getAxlStatus("axl-ready"),
+        steps: buildSettlementWorkflowSteps(signal),
+        reason: "AXL route unavailable",
+      });
+    } finally {
+      setAxlLoading(false);
+    }
+  }
+
   return (
     <SectionCard elevated>
       <SectionHeader
@@ -2544,7 +2599,9 @@ function SmartSettlementPanel({ onSettle }: { onSettle: () => void }) {
         description="AI checks expenses, calculates who owes whom, and helps the group settle faster."
         action={
           <div className="text-right">
-            <Badge tone="teal">AXL-ready</Badge>
+            <Badge tone={axlMode === "axl" ? "green" : "teal"}>
+              {axlMode === "axl" ? "AXL connected" : "AXL-ready"}
+            </Badge>
             <p className="mt-1 max-w-52 text-xs leading-5 text-slate-500">
               AI coordination layer for secure settlement processing.
             </p>
@@ -2578,10 +2635,10 @@ function SmartSettlementPanel({ onSettle }: { onSettle: () => void }) {
         </PrimaryButton>
         <button
           type="button"
-          onClick={() => setShowDetails((current) => !current)}
+          onClick={() => void handleViewDetails()}
           className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50"
         >
-          View details
+          {axlLoading ? "Checking..." : "View details"}
         </button>
       </div>
 
@@ -2599,6 +2656,32 @@ function SmartSettlementPanel({ onSettle }: { onSettle: () => void }) {
             />
             <MiniDetail label="Safety Check" value={titleCaseStatus(axlStatus.safetyCheck)} />
           </div>
+          <div className="mt-4 grid gap-2">
+            {axlSteps.map((step) => (
+              <div
+                key={step.id}
+                className="flex flex-col gap-2 rounded-2xl border border-white bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">
+                    {step.label}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    {step.message}
+                  </p>
+                </div>
+                <Badge tone={step.status === "complete" ? "green" : "teal"}>
+                  {titleCaseStatus(step.status)}
+                </Badge>
+              </div>
+            ))}
+          </div>
+          {axlResult?.reason ? (
+            <p className="mt-4 text-xs leading-5 text-slate-500">
+              AXL endpoint is not connected yet. The workflow is ready to route
+              when the endpoint is added.
+            </p>
+          ) : null}
         </div>
       ) : null}
     </SectionCard>

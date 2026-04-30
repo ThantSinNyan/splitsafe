@@ -186,7 +186,13 @@ SplitSafe presents settlement as three simple steps:
 - Split calculated
 - Settlement ready
 
-The AXL-ready service layer is available in `lib/axl.ts` for future AI coordination. The user-facing product keeps this subtle and focuses on helping groups settle faster.
+The AXL-ready service layer is available in `lib/axl.ts`, with a server-side
+route at `POST /api/axl/settlement`. When `GENSYN_AXL_ENDPOINT` is configured,
+SplitSafe forwards a sanitized settlement signal to that endpoint. Without the
+endpoint, the app returns an AXL-ready status and continues normally.
+
+Only workflow metadata is routed through this endpoint. Secret keys stay
+server-side, and member emails or names are not included in the AXL signal.
 
 ## Deploy to Vercel
 
