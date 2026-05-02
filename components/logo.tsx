@@ -6,33 +6,29 @@ export type LogoSize = "sm" | "md" | "lg";
 const logoSizes = {
   sm: {
     iconClassName: "size-8",
-    fullClassName: "h-8 w-[122px]",
+    fullClassName: "h-8 gap-2",
+    textClassName: "text-xl",
     iconImageSize: 32,
-    fullImageWidth: 320,
-    fullImageHeight: 84,
   },
   md: {
     iconClassName: "size-12",
-    fullClassName: "h-12 w-[183px]",
+    fullClassName: "h-12 gap-3",
+    textClassName: "text-2xl",
     iconImageSize: 48,
-    fullImageWidth: 480,
-    fullImageHeight: 126,
   },
   lg: {
     iconClassName: "size-12 sm:size-20",
-    fullClassName: "h-12 w-[183px] sm:h-20 sm:w-[305px]",
+    fullClassName: "h-12 gap-3 sm:h-20 sm:gap-4",
+    textClassName: "text-2xl sm:text-5xl",
     iconImageSize: 80,
-    fullImageWidth: 800,
-    fullImageHeight: 210,
   },
 } satisfies Record<
   LogoSize,
   {
     iconClassName: string;
     fullClassName: string;
+    textClassName: string;
     iconImageSize: number;
-    fullImageWidth: number;
-    fullImageHeight: number;
   }
 >;
 
@@ -60,7 +56,13 @@ export function Logo({
 
   if (compact) {
     return (
-      <div className={cn("relative shrink-0", config.iconClassName, className)}>
+      <div
+        className={cn(
+          "relative shrink-0 overflow-hidden rounded-full",
+          config.iconClassName,
+          className,
+        )}
+      >
         <Image
           src="/splitsafe-logo.png"
           width={config.iconImageSize}
@@ -76,19 +78,29 @@ export function Logo({
   return (
     <div
       className={cn(
-        "relative min-w-0 shrink-0",
+        "flex min-w-0 shrink-0 items-center",
         config.fullClassName,
         className,
       )}
     >
-      <Image
-        src="/splitsafe-logo-full.png"
-        width={config.fullImageWidth}
-        height={config.fullImageHeight}
-        alt="SplitSafe logo"
-        className="h-full w-full object-contain"
-        priority={size === "lg"}
-      />
+      <div className={cn("relative shrink-0 overflow-hidden rounded-full", config.iconClassName)}>
+        <Image
+          src="/splitsafe-logo.png"
+          width={config.iconImageSize}
+          height={config.iconImageSize}
+          alt=""
+          className="h-full w-full object-contain"
+          priority={size === "lg"}
+        />
+      </div>
+      <span
+        className={cn(
+          "truncate font-bold leading-none tracking-normal text-slate-950",
+          config.textClassName,
+        )}
+      >
+        SplitSafe
+      </span>
     </div>
   );
 }
